@@ -1,0 +1,15 @@
+/* ESDF keybindings for pro players */
+
+e +forward
+d +back
+s +moveleft
+f +moveright
+space +jump
+ctrl crouch
+z +crouch
+w +use
+mouse2 +altattack
+h usemeds
+a Toggle_Flashlight
+t switchGadget
+mapbind r am_togglefollow
