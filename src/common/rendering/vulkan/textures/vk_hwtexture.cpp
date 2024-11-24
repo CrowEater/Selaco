@@ -163,6 +163,7 @@ void VkHardwareTexture::CreateImage(FTexture *tex, int translation, int flags)
 			size_t pixelDataSize = 0, totalDataSize = 0;
 			int mipLevels = 0;
 			uint32_t srcWidth = src->GetWidth(), srcHeight = src->GetHeight();
+			TexFormat format;
 
 			// Create a reader
 			auto *rLump = fileSystem.GetFileAt(src->LumpNum());
@@ -175,14 +176,15 @@ void VkHardwareTexture::CreateImage(FTexture *tex, int translation, int flags)
 			reader->Seek(rLump->GetFileOffset(), FileReader::SeekSet);
 
 			// Read pixels
-			src->ReadCompressedPixels(reader, &pixelData, totalDataSize, pixelDataSize, mipLevels);
+			src->ReadCompressedPixels(reader, &pixelData, totalDataSize, pixelDataSize, mipLevels, format);
+			VkFormat fmt = GetVkInternalFormat(format);
 
 			// Create texture
 			// Mipmaps must be read from the source image, they cannot be generated
 			// TODO: Find some way to prevent UI textures from loading mipmaps. After all they are never used when rendering and just straight up eating VRAM for no reason
 			uint32_t expectedMipLevels = static_cast<uint32_t>(std::floor(std::log2(std::max(srcWidth, srcHeight)))) + 1;
 			if (mipLevels > 0 && mipLevels == (int)expectedMipLevels) {
-				CreateTexture(fb->GetCommands(), mImage.get(), src->GetWidth(), src->GetHeight(), 4, VK_FORMAT_BC7_UNORM_BLOCK, pixelData, true, false, (int)pixelDataSize);
+				CreateTexture(fb->GetCommands(), mImage.get(), src->GetWidth(), src->GetHeight(), 4, fmt, pixelData, true, false, (int)pixelDataSize);
 
 				uint32_t mipWidth = srcWidth, mipHeight = srcHeight;
 				uint32_t mipSize = (uint32_t)pixelDataSize, dataPos = (uint32_t)pixelDataSize;
@@ -193,12 +195,12 @@ void VkHardwareTexture::CreateImage(FTexture *tex, int translation, int flags)
 					mipSize = std::max(1u, ((mipWidth + 3) / 4)) * std::max(1u, ((mipHeight + 3) / 4)) * 16;
 					if (mipSize == 0 || totalDataSize - dataPos < mipSize)
 						break;
-					CreateTextureMipMap(fb->GetCommands(), mImage.get(), x, mipWidth, mipHeight, 4, VK_FORMAT_BC7_UNORM_BLOCK, pixelData + dataPos, mipSize);
+					CreateTextureMipMap(fb->GetCommands(), mImage.get(), x, mipWidth, mipHeight, 4, fmt, pixelData + dataPos, mipSize);
 					dataPos += mipSize;
 				}
 			}
 			else {
-				CreateTexture(fb->GetCommands(), mImage.get(), src->GetWidth(), src->GetHeight(), 4, VK_FORMAT_BC7_UNORM_BLOCK, pixelData, false, false, (int)pixelDataSize);
+				CreateTexture(fb->GetCommands(), mImage.get(), src->GetWidth(), src->GetHeight(), 4, fmt, pixelData, false, false, (int)pixelDataSize);
 			}
 			
 			free(pixelData);
@@ -519,6 +521,21 @@ void VkHardwareTexture::CreateWipeTexture(int w, int h, const char *name)
 	}
 }
 
+VkFormat VkHardwareTexture::GetVkInternalFormat(TexFormat format)
+{
+    switch(format)
+    {
+        case TexFormat::DXT1:
+            return VK_FORMAT_BC1_RGB_UNORM_BLOCK;
+        case TexFormat::DXT5:
+            return VK_FORMAT_BC3_UNORM_BLOCK;
+        case TexFormat::DX10:
+            return VK_FORMAT_BC7_UNORM_BLOCK;
+        default:
+            assert(0);
+    }
+}
+
 /////////////////////////////////////////////////////////////////////////////
 
 VkMaterial::VkMaterial(VulkanFrameBuffer* fb, FGameTexture* tex, int scaleflags) : FMaterial(tex, scaleflags), fb(fb)
@@ -603,4 +620,3 @@ VulkanDescriptorSet* VkMaterial::GetDescriptorSet(const FMaterialState& state)
 	mDescriptorSets.emplace_back(clampmode, translationp, std::move(descriptor));
 	return mDescriptorSets.back().descriptor.get();
 }
-

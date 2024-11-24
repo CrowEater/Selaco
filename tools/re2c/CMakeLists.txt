@@ -1,5 +1,7 @@
 cmake_minimum_required( VERSION 3.1.0 )
 
+set(CMAKE_OSX_ARCHITECTURES ${CMAKE_HOST_SYSTEM_PROCESSOR})
+
 if( NOT CMAKE_CROSSCOMPILING )
 
 include( CheckFunctionExists )

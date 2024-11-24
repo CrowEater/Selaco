@@ -180,7 +180,6 @@ VkTexLoadThread::~VkTexLoadThread() {
 	}*/
 }
 
-
 bool VkTexLoadThread::loadResource(VkTexLoadIn &input, VkTexLoadOut &output) {
 	currentImageID.store(input.imgSource->GetId());
 
@@ -239,10 +238,11 @@ bool VkTexLoadThread::loadResource(VkTexLoadIn &input, VkTexLoadOut &output) {
 			// GPU only textures cannot be trimmed or translated, so just do a straight read
 			size_t totalSize;
 			int numMipLevels;
-			output.isTranslucent = src->ReadCompressedPixels(params->reader, &pixelData, totalSize, pixelDataSize, numMipLevels);
+            TexFormat format;
+			output.isTranslucent = src->ReadCompressedPixels(params->reader, &pixelData, totalSize, pixelDataSize, numMipLevels, format);
 			freePixels = true;
 			mipmap = false;
-			fmt = VK_FORMAT_BC7_UNORM_BLOCK;
+			fmt = VkHardwareTexture::GetVkInternalFormat(format);
 
 			uint32_t expectedMipLevels = static_cast<uint32_t>(std::floor(std::log2(std::max(buffWidth, buffHeight)))) + 1;
 			if (numMipLevels != (int)expectedMipLevels || numMipLevels == 0) {

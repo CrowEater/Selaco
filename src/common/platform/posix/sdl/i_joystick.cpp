@@ -398,7 +398,7 @@ public:
 	}
 
 	FString GetIdentifier() override {
-		return "GM:" + DeviceIndex;
+		return FString("GM:") + DeviceIndex;
 	}
 	
 	int GetNumAxes() override

@@ -529,7 +529,7 @@ bool StatDatabase::readRPC(void* data, size_t size) {
 
 
 
-#ifdef __linux__
+#if defined(__linux__) || defined(__APPLE__)
 
 #include <unistd.h>
 #include <fcntl.h>
@@ -543,6 +543,10 @@ bool StatDatabase::readRPC(void* data, size_t size) {
 #include <netinet/tcp.h>
 #include <netdb.h>
 #include <sys/un.h>
+
+#ifdef __APPLE__
+#define SOCK_NONBLOCK O_NONBLOCK
+#endif
 
 const std::string IN_FILENAME = "selacoStat1";
 std::string IN_PIPE =  "/tmp/" + IN_FILENAME;

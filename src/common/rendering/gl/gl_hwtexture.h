@@ -7,7 +7,7 @@ class FTexture;
 
 #include "tarray.h"
 #include "hw_ihwtexture.h"
-
+#include "image.h"
 
 #ifdef LoadImage
 #undef LoadImage
@@ -59,6 +59,7 @@ private:
 	HardwareState hwStates[MAX_TEXTURES] = { HardwareState::NONE };
 
 
+	static GLenum GetGLInternalFormat(TexFormat format);
 	int GetDepthBuffer(int w, int h);
 
 public:
@@ -83,9 +84,9 @@ public:
 
 	unsigned int CreateTexture(unsigned char* buffer, int w, int h, int texunit, bool mipmap, const char* name);
 	unsigned int BackgroundCreateTexture(unsigned char* buffer, int w, int h, int texunit, bool mipmap, bool indexed, const char* name, bool forceNoMips = false);
-	unsigned int BackgroundCreateCompressedTexture(unsigned char* buffer, uint32_t dataSize, uint32_t totalSize, int w, int h, int texunit, int numMips, const char* name, bool forceNoMips = false);
-	unsigned int CreateCompressedTexture(unsigned char* buffer, uint32_t dataSize, uint32_t totalSize, int w, int h, int texunit, int numMips, const char* name, bool forceNoMips = false);
-	bool CreateCompressedMipmap(unsigned int glTexID, unsigned char* buffer, int mipLevel, int w, int h, int32_t size, int texunit);
+	unsigned int BackgroundCreateCompressedTexture(unsigned char* buffer, uint32_t dataSize, uint32_t totalSize, int w, int h, int texunit, int numMips, TexFormat format, const char* name, bool forceNoMips = false);
+	unsigned int CreateCompressedTexture(unsigned char* buffer, uint32_t dataSize, uint32_t totalSize, int w, int h, int texunit, int numMips, TexFormat format, const char* name, bool forceNoMips = false);
+	bool CreateCompressedMipmap(unsigned int glTexID, unsigned char* buffer, int mipLevel, int w, int h, int32_t size, int texunit, TexFormat format);
 	unsigned int GetTextureHandle()
 	{
 		return glTexID;

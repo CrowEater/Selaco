@@ -88,7 +88,7 @@ extern bool vid_hdr_active;
 #define gl_setNULLContext() static_cast<Win32GLVideo*>(Video)->setNULLContext()
 #endif
 
-#ifdef __POSIX_SDL_GL_SYSFB_H__
+#if defined(__POSIX_SDL_GL_SYSFB_H__) || defined(COCOA_GL_SYSFB_H_INCLUDED)
 #include "hardware.h"
 #define gl_setAUXContext(a) static_cast<OpenGLFrameBuffer*>(screen)->setAuxContext(a)
 #define gl_numAUXContexts() static_cast<OpenGLFrameBuffer*>(screen)->numAuxContexts()
@@ -190,8 +190,9 @@ bool GlTexLoadThread::loadResource(GlTexLoadIn & input, GlTexLoadOut & output) {
 			int numMipLevels;
 			size_t dataSize = 0, totalSize = 0;
 			unsigned char* pixelData;
-			output.isTranslucent = src->ReadCompressedPixels(params->reader, &pixelData, totalSize, dataSize, numMipLevels);
-			output.tex->BackgroundCreateCompressedTexture(pixelData, (uint32_t)dataSize, (uint32_t)totalSize, buffWidth, buffHeight, input.texUnit, numMipLevels, "GlTexLoadThread::loadResource(Compressed)", !input.allowMipmaps);
+			TexFormat format;
+			output.isTranslucent = src->ReadCompressedPixels(params->reader, &pixelData, totalSize, dataSize, numMipLevels, format);
+			output.tex->BackgroundCreateCompressedTexture(pixelData, (uint32_t)dataSize, (uint32_t)totalSize, buffWidth, buffHeight, input.texUnit, numMipLevels, format, "GlTexLoadThread::loadResource(Compressed)", !input.allowMipmaps);
 
 			if (input.spi.generateSpi) {
 				FGameTexture::GenerateEmptySpriteData(output.spi.info, buffWidth, buffHeight);

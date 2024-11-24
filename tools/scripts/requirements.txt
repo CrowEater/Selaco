@@ -1,0 +1,9 @@
+about-time==4.2.1
+alive-progress==3.2.0
+Django==1.10.8
+django-classy-tags==0.8.0
+django-sekizai==0.10.0
+grapheme==0.6.0
+pyobjc-core==10.3.1
+pyobjc-framework-Cocoa==10.3.1
+Wand==0.6.13
