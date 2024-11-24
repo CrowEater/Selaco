@@ -8,6 +8,7 @@ Since this is an early release I would not recommend buying Selaco with the beli
 
 ## Getting it running
 
+You can install the engine and 
 You will need a copy of Selaco.ipk3 unfortunately I'm not sure which version matches the source as provided.  The source suggests (in gitinfo.h that it's for version 0.33).  I can't seem to download that version and even when I do download version 0.4 I don't have much luck running that version of the ipk3.  The version that I tested was 0.84.
 
 When you have Selaco.ipk3 copy it to
@@ -34,13 +35,13 @@ I wrote a script to convert these textures to a supported format and patch the p
 
 the commands you'll use to run it are something like
 
-brew install imagemagick
-cd /Applications/Selaco.app/Contents/Scripts
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-./build_dxt_way.py
-deactivate
+    brew install imagemagick
+    cd /Applications/Selaco.app/Contents/Scripts
+    python3 -m venv .venv
+    source .venv/bin/activate
+    pip install -r requirements.txt
+    ./build_dxt_way.py
+    deactivate
 
 It takes about 5 minutes to run
 
