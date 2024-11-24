@@ -252,7 +252,6 @@ VkTexLoadThread::~VkTexLoadThread() {
 	}*/
 }
 
-
 static void TempUploadTexture(VkCommandBufferManager *cmd, VkHardwareTexture *tex, VkFormat fmt, int buffWidth, int buffHeight, unsigned char *pixelData, size_t pixelDataSize, size_t totalSize, bool mipmap = true, bool gpuOnly = false, bool indexed = false) {
 	if (gpuOnly) {
 		uint32_t numMipLevels = static_cast<uint32_t>(std::floor(std::log2(std::max(buffWidth, buffHeight)))) + 1;
@@ -341,13 +340,13 @@ bool VkTexLoadThread::loadResource(VkTexLoadIn &input, VkTexLoadOut &output) {
 			// GPU only textures cannot be trimmed or translated, so just do a straight read
 			size_t totalSize;
 			int numMipLevels;
-
 			assert(params->lump > 0);
+			TexFormat format;
 			FileReader reader = fileSystem.OpenFileReader(params->lump, FileSys::EReaderType::READER_NEW, 0);
-			output.isTranslucent = src->ReadCompressedPixels(&reader, &pixelData, totalSize, pixelDataSize, numMipLevels);
+			output.isTranslucent = src->ReadCompressedPixels(&reader, &pixelData, totalSize, pixelDataSize, numMipLevels, format);
 			reader.Close();
 			mipmap = false;
-			fmt = VK_FORMAT_BC7_UNORM_BLOCK;
+			fmt = VkHardwareTexture::GetVkInternalFormat(format);
 
 			output.totalDataSize = totalSize;
 

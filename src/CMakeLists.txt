@@ -35,14 +35,19 @@ endif()
 target_architecture(TARGET_ARCHITECTURE)
 message(STATUS "Architecture is ${TARGET_ARCHITECTURE}")
 
-if ( ${TARGET_ARCHITECTURE} MATCHES "arm64" )
-	set (ARM64 aarch64)
-endif()
+if (NOT APPLE)
+	if ( ${TARGET_ARCHITECTURE} MATCHES "arm64" )
+		set (ARM64 aarch64)
+	endif()
 
-# Right now only 64 bit is supported.
-if( ${TARGET_ARCHITECTURE} MATCHES "x86_64" )
-	set( X64 64 )
-	add_definitions( -DARCH_IA32 )
+	# Right now only 64 bit is supported.
+	if( ${TARGET_ARCHITECTURE} MATCHES "x86_64" )
+		set( X64 64 )
+	endif()
+
+	if( X64 OR ${TARGET_ARCHITECTURE} MATCHES "i386" )
+		add_definitions( -DARCH_IA32 )
+	endif()
 endif()
 
 if( NOT PROJECT_LIBRARIES )
@@ -418,14 +423,15 @@ endif()
 
 # todo: implement an actual crash catcher for ARM
 # for now this is purely experimental
-if (NOT ${TARGET_ARCHITECTURE} MATCHES "arm" )
-	set (PLAT_WIN32_SOURCES ${PLAT_WIN32_SOURCES} common/platform/win32/i_crash.cpp )
+if( MSVC)
+	if (${TARGET_ARCHITECTURE} MATCHES "arm")
+		set (PLAT_WIN32_SOURCES ${PLAT_WIN32_SOURCES} common/platform/win32/i_crash_arm.cpp )
+		add_definitions( -DNO_SSE -D__ARM__ -DRAPIDJSON_ENDIAN=RAPIDJSON_LITTLEENDIAN)
+	else()
+		set (PLAT_WIN32_SOURCES ${PLAT_WIN32_SOURCES} common/platform/win32/i_crash.cpp )
+	endif()
 endif()
-if (MSVC AND ${TARGET_ARCHITECTURE} MATCHES "arm")
-	set (PLAT_WIN32_SOURCES ${PLAT_WIN32_SOURCES} common/platform/win32/i_crash_arm.cpp )
-	add_definitions( -DNO_SSE -D__ARM__ -DRAPIDJSON_ENDIAN=RAPIDJSON_LITTLEENDIAN)
-endif()
-	
+
 set( PLAT_POSIX_SOURCES
 	posix/i_steam.cpp
 	common/platform/posix/i_system_posix.cpp )
@@ -445,7 +451,7 @@ set( PLAT_UNIX_SOURCES
 set( PLAT_OSX_SOURCES
 	common/platform/posix/osx/iwadpicker_cocoa.mm
 	common/platform/posix/osx/i_specialpaths.mm
-	posix/osx/zdoom.icns )
+	posix/osx/selaco.icns )
 set( PLAT_COCOA_SOURCES
 	common/platform/posix/cocoa/i_input.mm
 	common/platform/posix/cocoa/i_joystick.cpp
@@ -475,7 +481,7 @@ elseif( APPLE )
 
 	set( SYSTEM_SOURCES ${SYSTEM_SOURCES} ${PLAT_POSIX_SOURCES} ${PLAT_OSX_SOURCES} )
 
-	set_source_files_properties( posix/osx/zdoom.icns PROPERTIES MACOSX_PACKAGE_LOCATION Resources )
+	set_source_files_properties( posix/osx/selaco.icns PROPERTIES MACOSX_PACKAGE_LOCATION Resources )
 	set_source_files_properties( common/platform/posix/osx/iwadpicker_cocoa.mm PROPERTIES COMPILE_FLAGS -fobjc-exceptions )
 else()
 	option (SYSTEMINSTALL "Set global progdir based on CMake Install Dir" OFF)
@@ -1400,6 +1406,17 @@ add_custom_command(TARGET zdoom POST_BUILD
 
 if (VCPKG_TOOLCHAIN)
 	x_vcpkg_install_local_dependencies(TARGETS zdoom DESTINATION ".")
+elseif(APPLE)
+	# copy our script
+	add_custom_command(TARGET zdoom POST_BUILD  
+		COMMAND ${CMAKE_COMMAND} -E copy_if_different ${CMAKE_SOURCE_DIR}/tools/scripts/build_dxt_wad.py $<TARGET_FILE_DIR:zdoom>/../../Contents/Scripts/build_dxt_wad.py	)
+		add_custom_command(TARGET zdoom POST_BUILD  
+		COMMAND ${CMAKE_COMMAND} -E copy_if_different ${CMAKE_SOURCE_DIR}/tools/scripts/requirements.txt $<TARGET_FILE_DIR:zdoom>/../../Contents/Scripts/build_dxt_wad.py	)
+	# package up all the dynamic libraries and adjust paths
+	add_custom_command(TARGET zdoom POST_BUILD 
+		COMMAND python3 tools/scripts/package_selaco_osx.py $<TARGET_FILE_DIR:zdoom>/Selaco ${OSX_DYNAMIC_LIB}
+		WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+		COMMENT "Packaging dylibs")
 endif()
 
 if( WIN32 )
@@ -1429,13 +1446,13 @@ if( APPLE )
 
 	set_target_properties(zdoom PROPERTIES
 		LINK_FLAGS "${LINK_FRAMEWORKS}"
-		MACOSX_BUNDLE_INFO_PLIST "${CMAKE_CURRENT_SOURCE_DIR}/posix/osx/zdoom-info.plist"
+		MACOSX_BUNDLE_INFO_PLIST "${CMAKE_CURRENT_SOURCE_DIR}/posix/osx/selaco.plist"
 		XCODE_ATTRIBUTE_PRODUCT_BUNDLE_IDENTIFIER "org.drdteam.gzdoom"
 		XCODE_ATTRIBUTE_CODE_SIGN_IDENTITY "" )
 
 	# Dymanic libraries like libvulkan.dylib or libMoltenVK.dylib will be loaded by dlopen()
 	# if placed in the directory with the main executable
-	set( CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -rpath @executable_path" )
+	set( CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -rpath @executable_path/../Frameworks" )
 endif()
 
 if( WIN32 )

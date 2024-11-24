@@ -319,12 +319,12 @@ public:
 	FDDSTexture (int lumpnum);
 
 	PalettedPixels CreatePalettedPixels(int conversion, int frame = 0) override;
-	int ReadCompressedPixels(FileReader* reader, unsigned char** data, size_t& size, size_t& unitSize, int& mipLevels) override;
+	int ReadCompressedPixels(FileReader* reader, unsigned char** data, size_t& size, size_t& unitSize, int& mipLevels, TexFormat &format) override;
 
 	bool IsGPUOnly() override { return true; }
+	TexFormat GpuFormat() override { return (TexFormat)Format; }
 
 	//int32_t vkFormat, glFormat;
-
 	bool SerializeForTextureDef(FILE* fp, FString& name, int useType, FGameTexture* gameTex)  override {
 		const char* fullName = fileSystem.GetFileFullName(SourceLump);
 		fprintf(fp, "%d:%s:%s:%d:%dx%d:%dx%d:%d:%d:%d:%d:", 2, name.GetChars(), fullName != NULL ? fullName : "-", useType, Width, Height, LeftOffset, TopOffset, LinearSize, storedMips,  (int)bMasked, (int)bTranslucent);
@@ -464,9 +464,7 @@ FImageSource *DDSImage_TryCreate (FileReader &data, int lumpnum)
 		uint32_t	 dx10Byteswapping[sizeof(DDHEADERDX10) / 4];
 	};
 	
-
 	if (!CheckDDS(data)) return NULL;
-
 	data.Seek(4, FileReader::SeekSet);
 	data.Read (&surfdesc, sizeof(surfdesc));
 
@@ -481,41 +479,29 @@ FImageSource *DDSImage_TryCreate (FileReader &data, int lumpnum)
 #endif
 
 	bool hasDX10 = surfdesc.Flags & 0x4 && surfdesc.PixelFormat.FourCC == ID_DX10;
+    if(hasDX10)
+    {
+        data.Read(&dx10header, sizeof(dx10header));
 
-	if (!hasDX10) {
-		FString lumpname = fileSystem.GetFileFullName(lumpnum);
-		I_FatalError("DDS File Error (%s) Invalid Format: No DX10 header specified!", lumpname.GetChars());
-	}
-
-	data.Read(&dx10header, sizeof(dx10header));
-
+        if(dx10header.arraySize > 1) {
+            FString lumpname = fileSystem.GetFileFullName(lumpnum);
+            I_FatalError("DDS File Error (%s) Invalid Format: Multiple layers or images is currently unsupported!", lumpname.GetChars());
+        } else if (dx10header.dxgiFormat != DXGI_FORMAT_BC7_UNORM) {
+            FString lumpname = fileSystem.GetFileFullName(lumpnum);
+            I_FatalError("DDS File Error (%s) Invalid Format: Currently only DXGI_FORMAT_BC7_UNORM format is supported! BCx Formats should eventually be included when I'm not lazy.", lumpname.GetChars());
+        } else if (dx10header.resourceDimension != D3D10_RESOURCE_DIMENSION_TEXTURE2D) {
+            FString lumpname = fileSystem.GetFileFullName(lumpnum);
+            I_FatalError("DDS File Error (%s) Invalid Format: Only 2D textures are supported!", lumpname.GetChars());
+        }
 #ifdef __BIG_ENDIAN__
-	// Every single element of the dx10header is also a uint32_t
-	for (unsigned int i = 0; i < sizeof(DDHEADERDX10) / 4; ++i)
-	{
-		dx10Byteswapping[i] = LittleLong(byteswapping[i]);
-	}
+        // Every single element of the dx10header is also a uint32_t
+        for (unsigned int i = 0; i < sizeof(DDHEADERDX10) / 4; ++i)
+        {
+            dx10Byteswapping[i] = LittleLong(byteswapping[i]);
+        }
 #endif
-
-	/*if (surfdesc.MipMapCount > 0) {
-		FString lumpname = fileSystem.GetFileFullName(lumpnum);
-		I_FatalError("DDS File Error (%s) Invalid Format: Embedded mipmaps are currently unsupported!", lumpname.GetChars());
-	} else*/ if (surfdesc.LinearSize > 20971520) {
-		FString lumpname = fileSystem.GetFileFullName(lumpnum);
-		I_FatalError("DDS File Error (%s) Invalid Format: File is too large! This error should probably go away.", lumpname.GetChars());
-	} else if(dx10header.arraySize > 1) {
-		FString lumpname = fileSystem.GetFileFullName(lumpnum);
-		I_FatalError("DDS File Error (%s) Invalid Format: Multiple layers or images is currently unsupported!", lumpname.GetChars());
-	} else if (dx10header.dxgiFormat != DXGI_FORMAT_BC7_UNORM) {
-		FString lumpname = fileSystem.GetFileFullName(lumpnum);
-		I_FatalError("DDS File Error (%s) Invalid Format: Currently only DXGI_FORMAT_BC7_UNORM format is supported! BCx Formats should eventually be included when I'm not lazy.", lumpname.GetChars());
-	} else if (dx10header.resourceDimension != D3D10_RESOURCE_DIMENSION_TEXTURE2D) {
-		FString lumpname = fileSystem.GetFileFullName(lumpnum);
-		I_FatalError("DDS File Error (%s) Invalid Format: Only 2D textures are supported!", lumpname.GetChars());
-	}
-
-
-	/*if (surfdesc.PixelFormat.Flags & DDPF_FOURCC)
+    }
+    else if (surfdesc.PixelFormat.Flags & DDPF_FOURCC)
 	{
 		// Check for supported FourCC
 		if (surfdesc.PixelFormat.FourCC != ID_DXT1 &&
@@ -533,10 +519,18 @@ FImageSource *DDSImage_TryCreate (FileReader &data, int lumpnum)
 	}
 	else {
 		FString lumpname = fileSystem.GetFileFullName(lumpnum);
-		I_FatalError("DDS File Error (%s) Invalid Format: NO-FOURCC FLAG SET", lumpname.GetChars());
-	}*/
+		I_FatalError("DDS File Error (%s) Invalid Format: only DXT1/5 and BC7 supported", lumpname.GetChars());
+	}
 		
-		/*if (surfdesc.PixelFormat.Flags & DDPF_RGB)
+    /*if (surfdesc.MipMapCount > 0) {
+        FString lumpname = fileSystem.GetFileFullName(lumpnum);
+        I_FatalError("DDS File Error (%s) Invalid Format: Embedded mipmaps are currently unsupported!", lumpname.GetChars());
+    } else*/ if (surfdesc.LinearSize > 20971520) {
+        FString lumpname = fileSystem.GetFileFullName(lumpnum);
+        I_FatalError("DDS File Error (%s) Invalid Format: File is too large! This error should probably go away.", lumpname.GetChars());
+    }
+
+    /*if (surfdesc.PixelFormat.Flags & DDPF_RGB)
 	{
 		if ((surfdesc.PixelFormat.RGBBitCount >> 3) < 1 ||
 			(surfdesc.PixelFormat.RGBBitCount >> 3) > 4)
@@ -573,9 +567,8 @@ FDDSTexture::FDDSTexture (FileReader &lump, int lumpnum, void *vsurfdesc, void* 
 
 	//vkFormat = 146;		// VK_FORMAT_BC7_SRGB_BLOCK;
 	//glFormat = 0x8E8C;	// GL_COMPRESSED_RGBA_BPTC_UNORM
-
 	LinearSize = surf->LinearSize;
-	Format = ID_DX10;
+	Format = surf->PixelFormat.FourCC;
 	Pitch = 0;
 
 	// This is a bit backwards, but this value should be set by Offsetter. 
@@ -607,8 +600,8 @@ FDDSTexture::FDDSTexture(int lumpnum) : FImageSource(lumpnum)
 
 
 // Data must be interpreted, this may include mipmap data which may be used or discarded at will
-int FDDSTexture::ReadCompressedPixels(FileReader* reader, unsigned char** data, size_t& size, size_t& unitSize, int& mipLevels) {
-	const size_t headerSize = sizeof(DDSURFACEDESC2) + sizeof(DDHEADERDX10) + 4;
+int FDDSTexture::ReadCompressedPixels(FileReader* reader, unsigned char** data, size_t& size, size_t& unitSize, int& mipLevels, TexFormat &format) {
+    const size_t headerSize = sizeof(DDSURFACEDESC2) + ((Format == ID_DX10) ? sizeof(DDHEADERDX10) + 4 : 4);
 	
 	// TODO: Read remapped/translated version here when necessary!
 	int lumpSize = fileSystem.FileLength(SourceLump);
@@ -617,6 +610,7 @@ int FDDSTexture::ReadCompressedPixels(FileReader* reader, unsigned char** data, 
 	}
 
 	size_t pixelDataSize = lumpSize - headerSize;
+    assert( lumpSize > headerSize );
 
 	unsigned char* cacheData = new unsigned char[lumpSize];
 	reader->Read(cacheData, lumpSize);
@@ -625,6 +619,7 @@ int FDDSTexture::ReadCompressedPixels(FileReader* reader, unsigned char** data, 
 	unitSize = LinearSize;
 	size = pixelDataSize;
 	mipLevels = storedMips;
+	format = (TexFormat)Format;
 
 	if (pixelDataSize >= LinearSize) {
 		// Copy data from file

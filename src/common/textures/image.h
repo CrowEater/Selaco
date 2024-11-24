@@ -34,9 +34,17 @@ extern FMemArena ImageArena;
 #include "stats.h"
 #include "TSQueue.h"
 #include "palettecontainer.h"
+#include "printf.h"
 
-
-
+enum class TexFormat
+{
+	DXT1 = MAKE_ID('D', 'X', 'T', '1'),
+	DXT2 = MAKE_ID('D', 'X', 'T', '2'),
+	DXT3 = MAKE_ID('D', 'X', 'T', '3'),
+	DXT4 = MAKE_ID('D', 'X', 'T', '4'),
+	DXT5 = MAKE_ID('D', 'X', 'T', '5'),
+	DX10 = MAKE_ID('D', 'X', '1', '0'),
+};
 
 struct PalettedPixels
 {
@@ -119,6 +127,10 @@ public:
 	virtual bool SupportRemap0() { return false; }		// Unfortunate hackery that's needed for Hexen's skies. Only the image can know about the needed parameters
 	virtual bool IsRawCompatible() { return true; }		// Same thing for mid texture compatibility handling. Can only be determined by looking at the composition data which is private to the image.
 	virtual bool IsGPUOnly() { return false; }			// @Cockatrice - Image can only exist on the GPU, and CPU manipulation of this image will not be possible. Used for DDS Compressed Textures
+	virtual TexFormat GpuFormat() {
+		I_FatalError( "Bad call to Gpu Format on non-GPU texture");
+		return TexFormat::DXT1;
+	}
 
 	void CopySize(FImageSource &other) noexcept
 	{
@@ -139,7 +151,7 @@ public:
 	virtual int ReadPixels(FImageLoadParams *params, FBitmap *bmp);									// Thread safe(ish) version
 	virtual int ReadPixels(FileReader *reader, FBitmap *bmp, int conversion);						// Direct read pixels, must be implemented for things like multipatch to work properly
 	virtual int ReadTranslatedPixels(FileReader *reader, FBitmap *bmp, const PalEntry *remap, int conversion);							// Thread safe(ish) version
-	virtual int ReadCompressedPixels(FileReader* reader, unsigned char** data, size_t &size, size_t &unitSize, int &mipLevels);			// Thread safe, read data for the GPU and don't interpret it at all
+	virtual int ReadCompressedPixels(FileReader* reader, unsigned char** data, size_t &size, size_t &unitSize, int &mipLevel, TexFormat &format);			// Thread safe, read data for the GPU and don't interpret it at all
 
 	bool bMasked = true;						// Image (might) have holes (Assume true unless proven otherwise!)
 	int8_t bTranslucent = -1;					// Image has pixels with a non-0/1 value. (-1 means the user needs to do a real check)

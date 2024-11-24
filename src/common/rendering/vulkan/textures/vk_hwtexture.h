@@ -57,6 +57,7 @@ public:
 	std::list<VkHardwareTexture*>::iterator it;
 
 	static int GetMipLevels(int w, int h);
+	static VkFormat GetVkInternalFormat(TexFormat format);
 
 private:
 	void CreateImage(FTexture *tex, int translation, int flags);

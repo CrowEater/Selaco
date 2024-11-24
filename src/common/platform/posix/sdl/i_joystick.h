@@ -25,7 +25,7 @@ public:
     }
 
 	virtual FString GetIdentifier() {
-		return "JS:" + DeviceIndex;
+		return FString("JS:") + DeviceIndex;
 	}
 
 	virtual void AddAxes(float axes[NUM_JOYAXIS]) = 0;

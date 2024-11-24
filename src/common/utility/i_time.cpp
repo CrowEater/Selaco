@@ -53,6 +53,11 @@ int GameTicRate = 35;	// make sure it is not 0, even if the client doesn't set i
 
 double TimeScale = 1.0;
 
+void I_SetTimeScale(double scale)
+{
+	TimeScale = scale;
+}
+
 static uint64_t GetTimePoint()
 {
 	using namespace std::chrono;

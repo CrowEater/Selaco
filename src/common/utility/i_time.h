@@ -3,7 +3,8 @@
 #include <stdint.h>
 
 extern int GameTicRate;
-extern double TimeScale;
+//extern double TimeScale;   // conflicts with type TimeScale from MacTypes.h
+void I_SetTimeScale(double scale);
 
 void I_InitTime();
 
