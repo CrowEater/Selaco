@@ -477,7 +477,7 @@ void M_LoadGlobalVars(const char* filename) {
 
 		if (!key.Len() == 0 && !value.Len() == 0) {
 			globalStorage[key] = value;
-			Printf("Read: %s = %s\n", key, value);
+			Printf("Read: %s = %s\n", (const char *)key, (const char *)value);
 		}
 	}
 
