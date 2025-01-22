@@ -129,6 +129,42 @@ public:
 };
 
 
+ // Reference to a playing, or previously played sound
+ // Will maintain a pointer to FSoundChan for quick reference
+ class FSoundHandle {
+ public:
+	 FSoundHandle() = default;
+
+	 FSoundHandle(int id) {
+		 ID = id;
+	 }
+	 FSoundHandle(const FSoundHandle& other) = default;
+	 FSoundHandle& operator=(const FSoundHandle& other) = default;
+
+	 bool operator !=(FSoundHandle other) const
+	 {
+		 return ID != other.ID;
+	 }
+	 bool operator !=(int other) const
+	 {
+		 return ID != other;
+	 }
+	 operator int() const
+	 {
+		 return ID;
+	 }
+
+	 bool IsValid() const { return ID != 0; }
+	 bool IsPlaying() { return false; }
+	 bool StopSound() { return false; }
+	 bool SetPitch(double pitch) { return false; }
+	 bool SetVolume(double vol) { return false; }
+
+ private:
+	 int			ID = 0;
+ };
+
+
 
 struct FSoundChan : public FISoundChannel
 {
@@ -136,6 +172,7 @@ struct FSoundChan : public FISoundChannel
 	FSoundChan **PrevChan;	// Previous channel in this list.
 	FSoundID	SoundID;	// Sound ID of playing sound.
 	FSoundID	OrgID;		// Sound ID of sound used to start this channel.
+	int			HandleID;	// @Cockatrice - Unique ID of the current sound, correlates to a FSoundHandle ID
 	float		Volume;
 	int 		EntChannel;	// Actor's sound channel.
 	int			UserData;	// Not used by the engine, the caller can use this to store some additional info.
@@ -201,7 +238,7 @@ class SoundEngine
 {
 protected:
 	bool SoundPaused = false;		// whether sound is paused
-	int RestartEvictionsAt = 0;	// do not restart evicted channels before this time
+	int RestartEvictionsAt = 0;		// do not restart evicted channels before this time
 	SoundListener listener{};
 
 	FSoundChan* Channels = nullptr;
@@ -210,7 +247,7 @@ protected:
 	// the complete set of sound effects
 	TArray<sfxinfo_t> S_sfx;
 	FRolloffInfo S_Rolloff{};
-	TArray<uint8_t> S_SoundCurve;		// @Cockatrice - As far as I know this is only inited once, but for thread safety do not change this during gameplay
+	TArray<uint8_t> S_SoundCurve;			// @Cockatrice - As far as I know this is only inited once, but for thread safety do not change this during gameplay
 	TMap<int, int> ResIdMap;
 	TArray<FRandomSoundList> S_rnd;
 	bool blockNewSounds = false;
@@ -249,6 +286,8 @@ public:
 		blockNewSounds = on;
 	}
 
+	int LastSoundHandle = 0;					// @Cockatrice - global counter for sound handle ID. I don't want this public but it has to be accessible to Doomsound's serializer
+
 	virtual void StopChannel(FSoundChan* chan);
 	sfxinfo_t* LoadSound(sfxinfo_t* sfx);
 	sfxinfo_t* CheckLinks(sfxinfo_t *sfx);
@@ -271,9 +310,12 @@ public:
 	void StopAllChannels(void);
 	void SetPitch(FSoundChan* chan, float dpitch);
 	void SetVolume(FSoundChan* chan, float vol);
+	bool SetPitch(FSoundHandle &handle, float dpitch);
+	bool SetVolume(FSoundHandle &handle, float vol);
 
 	FSoundChan* GetChannel(void* syschan);
 	FSoundChan* FindChannel(void* syschan);
+	bool IsPlaying(FSoundHandle& handle);
 	void RestoreEvictedChannels();
 	void CalcPosVel(FSoundChan* chan, FVector3* pos, FVector3* vel);
 
@@ -289,16 +331,17 @@ public:
 	void UpdateSounds(int time);
 
 	FSoundChan* StartSound(int sourcetype, const void* source,
-		const FVector3* pt, int channel, EChanFlags flags, FSoundID sound_id, float volume, float attenuation, FRolloffInfo* rolloff = nullptr, float spitch = 0.0f, float startTime = 0.0f);
+		const FVector3* pt, int channel, EChanFlags flags, FSoundID sound_id, float volume, float attenuation, FRolloffInfo* rolloff = nullptr, float spitch = 0.0f, float startTime = 0.0f, FSoundHandle* handleOut = nullptr);
 	
 	FSoundChan* StartSoundER(sfxinfo_t *sfx, int type, const void *source,
 		FVector3 pos, FVector3 vel, int channel, EChanFlags flags, FSoundID sound_id, FSoundID org_sound_id, float volume, float attenuation,
-		FRolloffInfo *forcedrolloff, float spitch, float startTime, bool usePosVel = true);
+		FRolloffInfo *forcedrolloff, float spitch, float startTime, bool usePosVel = true, FSoundHandle reservedHandle = 0);
 
 	// Stops an origin-less sound from playing from this channel.
 	void StopSoundID(int sound_id);
 	void StopSound(int channel, int sound_id = -1);
 	void StopSound(int sourcetype, const void* actor, int channel, int sound_id = -1);
+	bool StopSound(FSoundHandle& handle);
 	void StopActorSounds(int sourcetype, const void* actor, int chanmin, int chanmax);
 
 	void RelinkSound(int sourcetype, const void* from, const void* to, const FVector3* optpos);

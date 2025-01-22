@@ -93,6 +93,8 @@ public:
 	void WorldTick();
 	FString GetSavegameComment(int &order);		// @Cockatrice - Static handlers can append custom data to savegame comments, sorted by order
 	bool IsSaveAllowed(bool quicksave);			// @Cockatrice - Callback to check if game saving is allowed at this moment
+	void PreSave(int saveType);					// @Cockatrice - Called immediately before a save, allowing managers to alter the world before saving
+	void PostSave(int saveType);				// @Cocaktrice - Called immediately after a save
 
 	//
 	void RenderFrame();
@@ -121,6 +123,10 @@ public:
 
 	// 
 	void StatsEvent(FString name, FString text, bool isAchievement, double value = 1);
+
+	//
+	bool SkillShouldChange(int oldSkill, int newSkill);
+	void SkillChanged(int oldSkill, int newSkill);
 
 	//
 	void NewGame();
@@ -274,6 +280,10 @@ struct EventManager
 	FString GetSavegameComments();
 	// @Cockatrice - Check if any event handler is preventing save games from happening
 	bool IsSaveAllowed(bool quicksave);
+	// @Cockatrice - Save callbacks
+	void PreSave(int saveType);
+	void PostSave(int saveType);
+
 	// this executes on every tick on UI side, always
 	void UiTick();
 	// this executes on every tick on UI side, always AND immediately after everything else
@@ -308,6 +318,11 @@ struct EventManager
 	void NewGame();
 
 	void Stat(FString name, FString text, bool isAchievement, double value);
+	
+	// @Cockatrice - A request to change skill has been made
+	// Return false to cancel
+	void SkillChanged(int oldSkill, int newSkill);
+	bool SkillShouldChange(int oldSkill, int newSkill);
 
 	// send networked event. unified function.
 	bool SendNetworkEvent(FString name, int arg1, int arg2, int arg3, bool manual);

@@ -13,6 +13,21 @@ class VulkanSwapChain;
 class VulkanSemaphore;
 class VulkanFence;
 
+
+// Provided by VK_MSFT_layered_driver
+typedef enum VkLayeredDriverUnderlyingApiMSFT {
+	VK_LAYERED_DRIVER_UNDERLYING_API_NONE_MSFT = 0,
+	VK_LAYERED_DRIVER_UNDERLYING_API_D3D12_MSFT = 1
+} VkLayeredDriverUnderlyingApiMSFT;
+
+// Provided by VK_MSFT_layered_driver
+typedef struct VkPhysicalDeviceLayeredDriverPropertiesMSFT {
+	VkStructureType                     sType;
+	void* pNext;
+	VkLayeredDriverUnderlyingApiMSFT    underlyingAPI;
+} VkPhysicalDeviceLayeredDriverPropertiesMSFT;
+
+
 class VulkanPhysicalDevice
 {
 public:
@@ -23,6 +38,19 @@ public:
 	VkPhysicalDeviceProperties Properties = {};
 	VkPhysicalDeviceFeatures Features = {};
 	VkPhysicalDeviceMemoryProperties MemoryProperties = {};
+
+	// Layer properties used to filter out layered drivers (D3D12 for instance)
+	VkPhysicalDeviceLayeredDriverPropertiesMSFT LayerProperties = {
+		VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_LAYERED_DRIVER_PROPERTIES_MSFT,
+		NULL,
+		VK_LAYERED_DRIVER_UNDERLYING_API_NONE_MSFT
+	};
+
+	VkPhysicalDeviceProperties2 Properties2 = {
+		VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2_KHR,
+		&LayerProperties,
+		{}
+	};
 };
 
 class VulkanCompatibleDevice

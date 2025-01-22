@@ -1156,7 +1156,9 @@ void G_Ticker ()
 			G_DoLoadGame ();
 			break;
 		case ga_savegame:
+			staticEventManager.PreSave(0);
 			G_DoSaveGame (true, false, savegamefile, savedescription);
+			staticEventManager.PostSave(0);
 			gameaction = ga_nothing;
 			savegamefile = "";
 			savedescription = "";
@@ -2356,7 +2358,10 @@ void G_DoAutoSave ()
 	struct tm* nowInfo = localtime(&now);
 	strftime(readableTime, 64, "%H:%M:%S - %d/%m/%Y", nowInfo);
 	description.Format("Autosave: %s", readableTime);
+
+	staticEventManager.PreSave(2);
 	G_DoSaveGame (false, false, file, description);
+	staticEventManager.PostSave(2);
 }
 
 
@@ -2382,7 +2387,10 @@ void G_DoQuickSave ()
 	struct tm* nowInfo = localtime(&now);
 	strftime(readableTime, 64, "%H:%M:%S - %d/%m/%Y", nowInfo);
 	description.Format("Quicksave: %s", readableTime);
+
+	staticEventManager.PreSave(1);
 	G_DoSaveGame (true, true, file, description);
+	staticEventManager.PostSave(1);
 }
 
 
@@ -3284,7 +3292,9 @@ DEFINE_ACTION_FUNCTION(FLevelLocals, MakeQuickSave)
 
 		FString readableTime = myasctime();
 		description.Format("Quicksave %s", readableTime.GetChars());
+		staticEventManager.PreSave(1);
 		G_DoSaveGame(true, true, file, description);
+		staticEventManager.PostSave(1);
 		ACTION_RETURN_BOOL(true);
 	}
 

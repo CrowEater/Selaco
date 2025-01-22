@@ -7,5 +7,6 @@ d +moveright
 space +jump
 ctrl +crouch
 e +use
+t LastWeapon
 mouse2 +altattack
 mapbind f am_togglefollow

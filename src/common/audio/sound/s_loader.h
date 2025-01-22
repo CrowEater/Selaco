@@ -13,6 +13,7 @@
 // This should encapsulate pre-calculated data on how the sound will be played
 // After it finishes loading via the queue
 struct AudioQueuePlayInfo {
+	FSoundHandle handle;
 	FSoundID orgSoundID;
 	FVector3 pos, vel;
 	int channel, type;
@@ -83,36 +84,6 @@ protected:
 };
 
 
-// A single thread used to read and convert audio contents
-// Does not modify any data but stores loaded audio for extraction later in the main thread
-/*class AudioLoaderThread {
-	friend class AudioLoaderQueue;	 // Should be temporary, eventually manage access to qItem
-public:
-	AudioLoaderThread(AudioQItem &item);
-	~AudioLoaderThread();
-
-	bool joinable() { return mThread.joinable(); }
-	void join() { mThread.join(); }
-	bool active() const noexcept { return mActive.load(std::memory_order_acquire); }
-
-	SoundHandle getSoundHandle() { if (active()) return { NULL }; else return loadSnd; }
-
-private:
-	std::atomic<bool> mActive{ true };
-	std::thread mThread;
-	SoundHandle loadSnd;
-
-	// Stat handling
-	cycle_t totalTime, threadTime;
-
-	AudioQItem qItem;
-	char *data = nullptr;
-	FileReader *readerCopy = nullptr;
-	bool createdNewData = false;
-
-	void startLoading();
-};
-*/
 
 class AudioLoaderQueue
 {
@@ -155,6 +126,7 @@ public:
 	void stopSound(FSoundID soundID);
 	void stopSound(int channel, FSoundID soundID);
 	void stopSound(int sourcetype, const void* actor, int channel, int soundID);
+	void stopSound(FSoundHandle& handle);
 	void stopActorSounds(int sourcetype, const void* actor, int chanmin, int chanmax);
 	void stopAllSounds();
 	int getSoundPlayingInfo(int sourcetype, const void *source, int sound_id, int chann);

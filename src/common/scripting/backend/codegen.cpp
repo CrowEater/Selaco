@@ -1439,6 +1439,87 @@ ExpEmit FxSoundCast::Emit(VMFunctionBuilder *build)
 	return to;
 }
 
+
+
+//==========================================================================
+//
+//
+//
+//==========================================================================
+
+FxSoundHandleCast::FxSoundHandleCast(FxExpression* x)
+	: FxExpression(EFX_SoundHandleCast, x->ScriptPosition)
+{
+	basex = x;
+	ValueType = TypeSoundHandle;
+}
+
+//==========================================================================
+//
+//
+//
+//==========================================================================
+
+FxSoundHandleCast::~FxSoundHandleCast()
+{
+	SAFE_DELETE(basex);
+}
+
+//==========================================================================
+//
+//
+//
+//==========================================================================
+
+FxExpression* FxSoundHandleCast::Resolve(FCompileContext& ctx)
+{
+	CHECKRESOLVED();
+	SAFE_RESOLVE(basex, ctx);
+
+	if (basex->ValueType == TypeSound || basex->ValueType->isInt())
+	{
+		FxExpression* x = basex;
+		x->ValueType = TypeSound;
+		basex = nullptr;
+		delete this;
+		return x;
+	}
+	else if (basex->ValueType == TypeString)
+	{
+		if (basex->isConstant())
+		{
+			ExpVal constval = static_cast<FxConstant*>(basex)->GetValue();
+			FxExpression* x = new FxConstant(FSoundHandle(constval.GetInt()), ScriptPosition);
+			delete this;
+			return x;
+		}
+		return this;
+	}
+	else
+	{
+		ScriptPosition.Message(MSG_ERROR, "Cannot convert to sound handle");
+		delete this;
+		return nullptr;
+	}
+}
+
+//==========================================================================
+//
+//
+//
+//==========================================================================
+
+ExpEmit FxSoundHandleCast::Emit(VMFunctionBuilder* build)
+{
+	ExpEmit from = basex->Emit(build);
+	assert(!from.Konst);
+	assert(basex->ValueType == TypeString);
+	from.Free(build);
+	ExpEmit to(build, REGT_INT);
+	build->Emit(OP_CAST, to.RegNum, from.RegNum, CAST_S2So);
+	return to;
+}
+
 //==========================================================================
 //
 //
@@ -1621,6 +1702,14 @@ FxExpression *FxTypeCast::Resolve(FCompileContext &ctx)
 	else if (ValueType == TypeSound)
 	{
 		FxExpression *x = new FxSoundCast(basex);
+		x = x->Resolve(ctx);
+		basex = nullptr;
+		delete this;
+		return x;
+	}
+	else if (ValueType == TypeSoundHandle)
+	{
+		FxExpression* x = new FxSoundHandleCast(basex);
 		x = x->Resolve(ctx);
 		basex = nullptr;
 		delete this;
@@ -4184,6 +4273,7 @@ ExpEmit FxConcat::Emit(VMFunctionBuilder *build)
 		else if (left->ValueType == TypeUInt32) cast = CAST_U2S;
 		else if (left->ValueType == TypeName) cast = CAST_N2S;
 		else if (left->ValueType == TypeSound) cast = CAST_So2S;
+		else if (left->ValueType == TypeSoundHandle) cast = CAST_So2S;
 		else if (left->ValueType == TypeColor) cast = CAST_Co2S;
 		else if (left->ValueType == TypeSpriteID) cast = CAST_SID2S;
 		else if (left->ValueType == TypeTextureID) cast = CAST_TID2S;
@@ -4217,6 +4307,7 @@ ExpEmit FxConcat::Emit(VMFunctionBuilder *build)
 		else if (right->ValueType == TypeUInt32) cast = CAST_U2S;
 		else if (right->ValueType == TypeName) cast = CAST_N2S;
 		else if (right->ValueType == TypeSound) cast = CAST_So2S;
+		else if (right->ValueType == TypeSoundHandle) cast = CAST_So2S;
 		else if (right->ValueType == TypeColor) cast = CAST_Co2S;
 		else if (right->ValueType == TypeSpriteID) cast = CAST_SID2S;
 		else if (right->ValueType == TypeTextureID) cast = CAST_TID2S;
@@ -7764,6 +7855,7 @@ FxExpression *FxFunctionCall::Resolve(FCompileContext& ctx)
 	case NAME_State:
 	case NAME_SpriteID:
 	case NAME_TextureID:
+	case NAME_SoundHandle:
 		if (CheckArgSize(MethodName, ArgList, 1, 1, ScriptPosition))
 		{
 			PType *type = 
@@ -7775,6 +7867,7 @@ FxExpression *FxFunctionCall::Resolve(FCompileContext& ctx)
 				MethodName == NAME_Name ? TypeName :
 				MethodName == NAME_SpriteID ? TypeSpriteID :
 				MethodName == NAME_TextureID ? TypeTextureID :
+				MethodName == NAME_SoundHandle ? TypeSoundHandle :
 				MethodName == NAME_State ? TypeState :
 				MethodName == NAME_Color ? TypeColor : (PType*)TypeSound;
 
@@ -7989,6 +8082,9 @@ FxExpression *FxMemberFunctionCall::Resolve(FCompileContext& ctx)
 		// because the resulting value type would cause problems in nearly every other place where identifiers are being used.
 		// [ZZ] substitute ccls for String internal type.
 		if (id == NAME_String) ccls = TypeStringStruct;
+		else if (id == NAME_SoundHandle) {
+			ccls = TypeSoundHandleStruct;
+		}
 		else ccls = FindContainerType(id, ctx);
 		if (ccls != nullptr) static_cast<FxIdentifier *>(Self)->noglobal = true;
 	}
@@ -8067,6 +8163,40 @@ FxExpression *FxMemberFunctionCall::Resolve(FCompileContext& ctx)
 	}
 
 	// Note: These builtins would better be relegated to the actual type objects, instead of polluting this file, but that's a task for later.
+
+	// SoundHandle builtins
+	else if (Self->ValueType == TypeSoundHandle)
+	{
+		if (MethodName == NAME_IsValid || MethodName == NAME_SetInvalid)
+		{
+			if (ArgList.Size() > 0)
+			{
+				ScriptPosition.Message(MSG_ERROR, "Too many parameters in call to %s", MethodName.GetChars());
+				delete this;
+				return nullptr;
+			}
+			// No need to create a dedicated node here, all builtins map directly to trivial operations.
+			Self->ValueType = TypeSInt32;
+			FxExpression* x = nullptr;
+			switch (MethodName.GetIndex())
+			{
+				case NAME_IsValid:
+					x = new FxCompareRel('>', Self, new FxConstant(0, ScriptPosition));
+					break;
+
+				case NAME_SetInvalid:
+					x = new FxAssign(Self, new FxConstant(0, ScriptPosition));
+					break;
+			}
+			Self = nullptr;
+			SAFE_RESOLVE(x, ctx);
+			if (MethodName == NAME_SetInvalid) x->ValueType = TypeVoid; // override the default type of the assignment operator.
+			delete this;
+			return x;
+		}
+
+		Self->ValueType = TypeSoundHandleStruct;
+	}
 
 	// Texture builtins.
 	else if (Self->ValueType == TypeTextureID)

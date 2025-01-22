@@ -1408,17 +1408,29 @@ SoundStream *OpenALSoundRenderer::CreateStream(SoundStreamCallback callback, int
 
 FISoundChannel *OpenALSoundRenderer::StartSound(SoundHandle sfx, float vol, float pitch, int chanflags, FISoundChannel *reuse_chan, float startTime)
 {
-	if (FreeSfx.Size() == 0)
-	{
-		FSoundChan *lowest = FindLowestChannel();
-		if (lowest) StopChannel(lowest);
+	ALuint source = 0;
+	bool usingReserved = reuse_chan && (reuse_chan->ChanFlags & CHANF_RESERVED);
 
-		if (FreeSfx.Size() == 0)
-			return NULL;
+	// If we are reusing a channel that was reserved, use the reserved source
+	if (usingReserved) {
+		assert(reuse_chan->SysChannel != NULL);
+		source = GET_PTRID(reuse_chan->SysChannel);
 	}
+	else {
+		if (FreeSfx.Size() == 0)
+		{
+			FSoundChan* lowest = FindLowestChannel();
+			if (lowest) StopChannel(lowest);
 
-	assert(SfxGroup.find(FreeSfx.Last()) == SfxGroup.end());	// Source should be unique!!
+			if (FreeSfx.Size() == 0)
+				return NULL;
+		}
 
+		assert(SfxGroup.find(FreeSfx.Last()) == SfxGroup.end());	// Source should be unique!!
+
+		source = FreeSfx.Last();
+		FreeSfx.Pop();
+	}
 
 	OpenALQueueItem playInfo;
 
@@ -1428,9 +1440,9 @@ FISoundChannel *OpenALSoundRenderer::StartSound(SoundHandle sfx, float vol, floa
 	playInfo.startTime = startTime;
 	playInfo.chanflags = chanflags;
 	playInfo.buffer = GET_PTRID(sfx.data);
-	playInfo.source = FreeSfx.Last();
-	playInfo.reuseChan = reuse_chan != nullptr && reuse_chan->StartTime != 0;
-	playInfo.chanStartTime = reuse_chan ? reuse_chan->StartTime : 0;
+	playInfo.source = source;
+	playInfo.reuseChan = !usingReserved && reuse_chan != nullptr && reuse_chan->StartTime != 0;
+	playInfo.chanStartTime = !usingReserved && reuse_chan ? reuse_chan->StartTime : 0;
 	playInfo.envSlot = EnvSlot;
 	playInfo.rolloff.RolloffType = -1;
 	playInfo.pitch = pitch;
@@ -1443,7 +1455,6 @@ FISoundChannel *OpenALSoundRenderer::StartSound(SoundHandle sfx, float vol, floa
 	};
 
 	SfxGroup[playInfo.source] = status;
-	FreeSfx.Pop();
 
 	FISoundChannel *chan = reuse_chan;
 	if (!chan) chan = soundEngine->GetChannel(MAKE_PTRID(playInfo.source));
@@ -1454,10 +1465,40 @@ FISoundChannel *OpenALSoundRenderer::StartSound(SoundHandle sfx, float vol, floa
 	chan->Rolloff.MinDistance = 1.f;
 	chan->DistanceSqr = 0.f;
 	chan->ManualRolloff = false;
+	chan->ChanFlags &= ~CHANF_RESERVED;
 
 	// Queue the play OP
 	PlayQueue.queue(playInfo);
 
+	return chan;
+}
+
+
+FISoundChannel *OpenALSoundRenderer::ReserveChannel(int priority) {
+	if (FreeSfx.Size() == 0) {
+		FSoundChan* lowest = FindLowestChannel();
+		if (lowest)
+		{
+			if (lowest->Priority <= priority)
+				StopChannel(lowest);
+		}
+		if (FreeSfx.Size() == 0)
+			return NULL;
+	}
+
+	ALuint source = FreeSfx.Last();
+	assert(SfxGroup.find(source) == SfxGroup.end());	// Source should be unique!!
+	
+	SFXStatus status = {
+		source,
+		AL_INITIAL,
+		false, false, false
+	};
+
+	SfxGroup[source] = status;
+	FreeSfx.Pop();
+
+	FISoundChannel* chan = soundEngine->GetChannel(MAKE_PTRID(source));
 	return chan;
 }
 
@@ -1468,17 +1509,31 @@ FISoundChannel *OpenALSoundRenderer::StartSound3D(SoundHandle sfx, SoundListener
 {
 	float dist_sqr = (float)(pos - listener->position).LengthSquared();
 
-	if (FreeSfx.Size() == 0)
-	{
-		FSoundChan *lowest = FindLowestChannel();
-		if (lowest)
-		{
-			if (lowest->Priority < priority || (lowest->Priority == priority &&
-				lowest->DistanceSqr > dist_sqr))
-				StopChannel(lowest);
-		}
+	ALuint source = 0;
+	bool usingReserved = reuse_chan && (reuse_chan->ChanFlags & CHANF_RESERVED);
+
+	// If we are reusing a channel that was reserved, use the reserved source
+	if (usingReserved) {
+		assert(reuse_chan->SysChannel != NULL);
+		source = GET_PTRID(reuse_chan->SysChannel);
+	}
+	else {
 		if (FreeSfx.Size() == 0)
-			return NULL;
+		{
+			FSoundChan* lowest = FindLowestChannel();
+			if (lowest)
+			{
+				if (lowest->Priority < priority || (lowest->Priority == priority &&
+					lowest->DistanceSqr > dist_sqr))
+					StopChannel(lowest);
+			}
+			if (FreeSfx.Size() == 0)
+				return NULL;
+		}
+
+		source = FreeSfx.Last();
+		assert(SfxGroup.find(source) == SfxGroup.end());	// Source should be unique!!
+		FreeSfx.Pop();
 	}
 
 	bool manualRolloff = !(rolloff->RolloffType == ROLLOFF_Log) || !(rolloff->RolloffType == ROLLOFF_Linear && AL.EXT_source_distance_model);
@@ -1486,7 +1541,6 @@ FISoundChannel *OpenALSoundRenderer::StartSound3D(SoundHandle sfx, SoundListener
 	OpenALQueueItem playInfo;
 
 	ALuint buffer = GET_PTRID(sfx.data);
-	ALuint source = FreeSfx.Last();
 
 	playInfo.sfx = sfx;
 	playInfo.pos = pos;
@@ -1498,8 +1552,8 @@ FISoundChannel *OpenALSoundRenderer::StartSound3D(SoundHandle sfx, SoundListener
 	playInfo.chanflags = chanflags;
 	playInfo.buffer = buffer;
 	playInfo.source = source;
-	playInfo.reuseChan = reuse_chan != nullptr && reuse_chan->StartTime != 0;
-	playInfo.chanStartTime = reuse_chan ? reuse_chan->StartTime : 0;
+	playInfo.reuseChan = !usingReserved && reuse_chan != nullptr && reuse_chan->StartTime != 0;
+	playInfo.chanStartTime = !usingReserved && reuse_chan ? reuse_chan->StartTime : 0;
 	playInfo.distscale = distscale;
 	playInfo.channum = channum;
 	playInfo.pitch = pitch;
@@ -1507,8 +1561,6 @@ FISoundChannel *OpenALSoundRenderer::StartSound3D(SoundHandle sfx, SoundListener
 	playInfo.inWater = WasInWater;
 	playInfo.envSlot = EnvSlot;
 	playInfo.priority = priority;
-
-	assert(SfxGroup.find(source) == SfxGroup.end());	// Source should be unique!!
 
 	SFXStatus status = {
 		source,
@@ -1518,7 +1570,6 @@ FISoundChannel *OpenALSoundRenderer::StartSound3D(SoundHandle sfx, SoundListener
 	};
 
 	SfxGroup[source] = status;
-	FreeSfx.Pop();
 
 	FISoundChannel *chan = reuse_chan;
 	if (!chan) chan = soundEngine->GetChannel(MAKE_PTRID(source));
@@ -1527,6 +1578,7 @@ FISoundChannel *OpenALSoundRenderer::StartSound3D(SoundHandle sfx, SoundListener
 	chan->Rolloff = *rolloff;
 	chan->DistanceSqr = dist_sqr;
 	chan->ManualRolloff = manualRolloff;
+	chan->ChanFlags &= ~CHANF_RESERVED;
 
 	// Queue the sound on the bg thread
 	PlayQueue.queue(playInfo);
@@ -2685,7 +2737,7 @@ FSoundChan *OpenALSoundRenderer::FindLowestChannel()
 	FSoundChan *lowest = NULL;
 	while(schan)
 	{
-		if(schan->SysChannel != NULL)
+		if(schan->SysChannel != NULL && (schan->ChanFlags & CHANF_RESERVED) == 0)
 		{
 			if(!lowest || schan->Priority < lowest->Priority ||
 			   (schan->Priority == lowest->Priority &&

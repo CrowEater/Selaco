@@ -111,6 +111,7 @@ public:
 	// Starts a sound.
 	virtual FISoundChannel *StartSound (SoundHandle sfx, float vol, float pitch, int chanflags, FISoundChannel *reuse_chan, float startTime = 0.f) = 0;
 	virtual FISoundChannel *StartSound3D (SoundHandle sfx, SoundListener *listener, float vol, FRolloffInfo *rolloff, float distscale, float pitch, int priority, const FVector3 &pos, const FVector3 &vel, int channum, int chanflags, FISoundChannel *reuse_chan, float startTime = 0.f) = 0;
+	virtual FISoundChannel *ReserveChannel(int priority) { return nullptr; }
 
 	// Stops a sound channel.
 	virtual void StopChannel (FISoundChannel *chan) = 0;

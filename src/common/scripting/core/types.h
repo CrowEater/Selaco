@@ -377,6 +377,12 @@ public:
 	bool ReadValue(FSerializer &ar, const char *key, void *addr) const override;
 };
 
+class PSoundHandle : public PInt
+{
+public:
+	PSoundHandle();
+};
+
 class PColor : public PInt
 {
 public:
@@ -612,6 +618,7 @@ extern PFloat *TypeFloat32, *TypeFloat64;
 extern PString *TypeString;
 extern PName *TypeName;
 extern PSound *TypeSound;
+extern PSoundHandle *TypeSoundHandle;
 extern PColor *TypeColor;
 extern PTextureID *TypeTextureID;
 extern PSpriteID *TypeSpriteID;
@@ -621,6 +628,7 @@ extern PStruct* TypeFVector2;
 extern PStruct* TypeFVector3;
 extern PStruct *TypeColorStruct;
 extern PStruct *TypeStringStruct;
+extern PStruct *TypeSoundHandleStruct;
 extern PStatePointer *TypeState;
 extern PPointer *TypeFont;
 extern PStateLabel *TypeStateLabel;

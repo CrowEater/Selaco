@@ -46,6 +46,7 @@
 #include "c_cvars.h"
 #include "s_loader.h"
 #include "g_levellocals.h"
+#include "i_time.h"
 
 CVARD(Bool, snd_enabled, true, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "enables/disables sound effects")
 EXTERN_CVAR(Bool, snd_pitched)
@@ -425,7 +426,7 @@ EXTERN_CVAR(Int, audio_loader_threads);
 
 FSoundChan *SoundEngine::StartSound(int type, const void *source,
 	const FVector3 *pt, int channel, EChanFlags flags, FSoundID sound_id, float volume, float attenuation,
-	FRolloffInfo *forcedrolloff, float spitch, float startTime)
+	FRolloffInfo *forcedrolloff, float spitch, float startTime, FSoundHandle *handleOut)
 {
 	sfxinfo_t *sfx;
 	int org_id;
@@ -567,6 +568,15 @@ FSoundChan *SoundEngine::StartSound(int type, const void *source,
 		pitch = defpitch;
 	}
 
+	// Select priority.
+	if (type == SOURCE_None || source == listener.ListenerObject)
+	{
+		basepriority = 80;
+	}
+	else
+	{
+		basepriority = 0;
+	}
 
 	// If the sound is not loaded, add it to the queue instead of playing it now
 	if (!sfx->data.isValid() && audio_loader_threads > 0 && level.maptime > 1) {
@@ -580,15 +590,42 @@ FSoundChan *SoundEngine::StartSound(int type, const void *source,
 				force2D = true;
 			}
 
+			// Reserve a sound channel for the new sound
+			LastSoundHandle++;
+			//chan = (FSoundChan*)GSnd->ReserveChannel(basepriority);
+
 			AudioQueuePlayInfo info = {
-				org_id, pos, vel, channel, type,
+				LastSoundHandle, org_id, pos, vel, channel, type,
 				pitch, volume, force2D ? 0 : attenuation, startTime,
 				flags, *rolloff, source
 			};
 
 			AudioLoaderQueue::Instance->queue(sfx, sound_id, &info);
 
-			return NULL;	// TODO: Is this what we want to return? The sound is likely going to get played, just not now
+			/*if (chan != NULL)
+			{
+				chan->HandleID = LastSoundHandle;
+				chan->SoundID = sound_id;
+				chan->OrgID = FSoundID(org_id);
+				chan->EntChannel = channel;
+				chan->Volume = float(volume);
+				chan->ChanFlags = CHANF_RESERVED;
+				chan->NearLimit = near_limit;
+				chan->LimitRange = limit_range;
+				chan->Pitch = pitch;
+				chan->Priority = basepriority;
+				chan->DistanceScale = float(attenuation);
+				chan->SourceType = type;
+				chan->UserData = 0;
+				chan->Source = nullptr;
+				chan->Point[0] = level.time;
+			}*/
+
+			if (handleOut != nullptr) {
+				*handleOut = LastSoundHandle;
+			}
+
+			return NULL;
 		}
 	}
 
@@ -599,16 +636,6 @@ FSoundChan *SoundEngine::StartSound(int type, const void *source,
 	if (sfx->lumpnum == sfx_empty)
 	{
 		return NULL;
-	}
-
-	// Select priority.
-	if (type == SOURCE_None || source == listener.ListenerObject)
-	{
-		basepriority = 80;
-	}
-	else
-	{
-		basepriority = 0;
 	}
 
 	int seen = 0;
@@ -658,10 +685,6 @@ FSoundChan *SoundEngine::StartSound(int type, const void *source,
 		if (chanflags & (CHANF_UI | CHANF_NOPAUSE)) startflags |= SNDF_NOPAUSE;
 		if (chanflags & CHANF_UI) startflags |= SNDF_NOREVERB;
 
-		/*float sfxlength = (float)GSnd->GetMSLength(sfx->data) / 1000.f;
-		startTime = (startflags & SNDF_LOOP)
-			? (sfxlength > 0 ? fmodf(startTime, sfxlength) : 0.f)
-			: clamp(startTime, 0.f, sfxlength);*/
 		// Don't get length when not necessary
 		if (abs(startTime) > 0.00001f) {
 			float sfxlength = (float)GSnd->GetMSLength(sfx->data) / 1000.f;
@@ -698,6 +721,7 @@ FSoundChan *SoundEngine::StartSound(int type, const void *source,
 	}
 	if (chan != NULL)
 	{
+		chan->HandleID = ++LastSoundHandle;
 		chan->SoundID = sound_id;
 		chan->OrgID = FSoundID(org_id);
 		chan->EntChannel = channel;
@@ -719,26 +743,9 @@ FSoundChan *SoundEngine::StartSound(int type, const void *source,
 			chan->Source = source;
 		}
 
-		/*if (spitch > 0.0)				// A_StartSound has top priority over all others.
-			SetPitch(chan, spitch);
-		else if (defpitch > 0.0)	// $PitchSet overrides $PitchShift
-		{
-			if (defpitchmax > 0.0)
-			{
-				if (defpitchmax < defpitch)
-					std::swap(defpitch, defpitchmax);
-
-				if (defpitch != defpitchmax)
-				{
-					FRandom &rng = pr_soundpitch;
-					int random = (rng)(0x7FFF);
-					float frandom = random / float(0x7FFF);
-
-					defpitch = frandom * (defpitchmax - defpitch) + defpitch;
-				}
-			}
-			SetPitch(chan, defpitch);
-		}*/
+		if (handleOut != nullptr) {
+			*handleOut = LastSoundHandle;
+		}
 	}
 
 	return chan;
@@ -748,7 +755,7 @@ FSoundChan *SoundEngine::StartSound(int type, const void *source,
 // Do not check links or verify that the sound is loaded. If not loaded, no sound is played.
 FSoundChan *SoundEngine::StartSoundER(sfxinfo_t *sfx, int type, const void *source,
 	FVector3 pos, FVector3 vel, int channel, EChanFlags flags, FSoundID sound_id, FSoundID org_sound_id, float volume, float attenuation,
-	FRolloffInfo *forcedrolloff, float spitch, float startTime, bool usePosVel)
+	FRolloffInfo *forcedrolloff, float spitch, float startTime, bool usePosVel, FSoundHandle reservedHandle)
 {
 	// Return NULL if the sound isn't loaded
 	if (!sfx->data.isValid()) { 
@@ -886,15 +893,26 @@ FSoundChan *SoundEngine::StartSoundER(sfxinfo_t *sfx, int type, const void *sour
 				? (sfxlength > 0 ? fmodf(startTime, sfxlength) : 0.f)
 				: clamp(startTime, 0.f, sfxlength);
 		}
-		
+
+		chan = NULL;
+
+		// Find the channel if we specified a sound handle
+		if (reservedHandle.IsValid()) {
+			for (chan = Channels; chan != NULL; chan = chan->NextChan) {
+				if (chan->HandleID == reservedHandle) {
+					break;
+				}
+			}
+		}
+
 
 		if (attenuation > 0 && type != SOURCE_None)
 		{
-			chan = (FSoundChan*)GSnd->StartSound3D(sfx->data, &listener, volume, rolloff, attenuation, max(0.0001f, spitch), basepriority, pos, vel, channel, startflags, NULL, startTime);
+			chan = (FSoundChan*)GSnd->StartSound3D(sfx->data, &listener, volume, rolloff, attenuation, max(0.0001f, spitch), basepriority, pos, vel, channel, startflags, chan, startTime);
 		}
 		else
 		{
-			chan = (FSoundChan*)GSnd->StartSound(sfx->data, volume, max(0.0001f, spitch), startflags, NULL, startTime);
+			chan = (FSoundChan*)GSnd->StartSound(sfx->data, volume, max(0.0001f, spitch), startflags, chan, startTime);
 		}
 
 		sndTimer.Unclock();
@@ -918,6 +936,7 @@ FSoundChan *SoundEngine::StartSoundER(sfxinfo_t *sfx, int type, const void *sour
 	}
 	if (chan != NULL)
 	{
+		chan->HandleID = reservedHandle.IsValid() ? (int)reservedHandle : ++LastSoundHandle;
 		chan->SoundID = sound_id;
 		chan->OrgID = org_sound_id;
 		chan->EntChannel = channel;
@@ -940,28 +959,6 @@ FSoundChan *SoundEngine::StartSoundER(sfxinfo_t *sfx, int type, const void *sour
 		{
 			chan->Source = source;
 		}
-
-		/*if (spitch > 0.0) {
-			SetPitch(chan, spitch);
-		}
-		else if (defpitch > 0.0)	// $PitchSet overrides $PitchShift
-		{
-			if (defpitchmax > 0.0)
-			{
-				if (defpitchmax < defpitch)
-					std::swap(defpitch, defpitchmax);
-
-				if (defpitch != defpitchmax)
-				{
-					FRandom &rng = pr_soundpitch;
-					int random = (rng)(0x7FFF);
-					float frandom = random / float(0x7FFF);
-
-					defpitch = frandom * (defpitchmax - defpitch) + defpitch;
-				}
-			}
-			SetPitch(chan, defpitch);
-		}*/
 	}
 
 	return chan;
@@ -1197,7 +1194,7 @@ bool SoundEngine::CheckSoundLimit(sfxinfo_t *sfx, const FVector3 &pos, int near_
 
 	for (chan = Channels, count = 0; chan != NULL && count < near_limit; chan = chan->NextChan)
 	{
-		if (chan->ChanFlags & CHANF_FORGETTABLE) continue;
+		if (chan->ChanFlags & CHANF_FORGETTABLE || chan->ChanFlags & CHANF_RESERVED) continue;
 		if (!(chan->ChanFlags & CHANF_EVICTED) && (&S_sfx[chan->SoundID] == sfx || (compareOrgID != nullptr && &S_sfx[chan->OrgID] == compareOrgID)))
 		{
 			FVector3 chanorigin;
@@ -1266,6 +1263,24 @@ void SoundEngine::StopSound (int channel, int sound_id)
 	}
 
 	AudioLoaderQueue::Instance->stopSound(channel, sound_id);
+}
+
+
+bool SoundEngine::StopSound(FSoundHandle& handle) {
+	FSoundChan* chan = Channels;
+	while (chan != NULL)
+	{
+		FSoundChan* next = chan->NextChan;
+		if (chan->HandleID == handle)
+		{
+			StopChannel(chan);
+			AudioLoaderQueue::Instance->stopSound(handle);
+			return true;
+		}
+		chan = next;
+	}
+
+	return false;
 }
 
 //==========================================================================
@@ -1427,6 +1442,16 @@ void SoundEngine::SetVolume(FSoundChan* chan, float volume)
 	chan->Volume = volume;
 }
 
+bool SoundEngine::SetVolume(FSoundHandle& handle, float pitch) {
+	for (FSoundChan* chan = Channels; chan != NULL; chan = chan->NextChan) {
+		if (chan->HandleID == handle) {
+			SetVolume(chan, (float)pitch);
+			return true;
+		}
+	}
+	return false;
+}
+
 //==========================================================================
 //
 // S_ChangeSoundPitch
@@ -1452,6 +1477,26 @@ void SoundEngine::SetPitch(FSoundChan *chan, float pitch)
 	assert(chan != nullptr);
 	GSnd->ChannelPitch(chan, max(0.0001f, pitch));
 	chan->Pitch = pitch;
+}
+
+bool SoundEngine::SetPitch(FSoundHandle &handle, float pitch) {
+	for (FSoundChan* chan = Channels; chan != NULL; chan = chan->NextChan) {
+		if (chan->HandleID == handle) {
+			SetPitch(chan, (float)pitch);
+			return true;
+		}
+	}
+	return false;
+}
+
+
+bool SoundEngine::IsPlaying(FSoundHandle& handle) {
+	for (FSoundChan* chan = Channels; chan != NULL; chan = chan->NextChan) {
+		if (chan->HandleID == handle) {
+			return true;
+		}
+	}
+	return false;
 }
 
 //==========================================================================
@@ -1642,10 +1687,13 @@ void SoundEngine::RestoreEvictedChannels()
 void SoundEngine::UpdateSounds(int time)
 {
 	FVector3 pos, vel;
+	FSoundChan* purges[5] = { NULL, NULL, NULL, NULL, NULL };
+	int purgeCnt = 0;
 
 	for (FSoundChan* chan = Channels; chan != NULL; chan = chan->NextChan)
 	{
-		if ((chan->ChanFlags & (CHANF_EVICTED | CHANF_IS3D)) == CHANF_IS3D)
+		const bool reserved = (chan->ChanFlags & CHANF_RESERVED) != 0;
+		if ((chan->ChanFlags & (CHANF_EVICTED | CHANF_IS3D)) == CHANF_IS3D && !reserved)
 		{
 			CalcPosVel(chan, &pos, &vel);
 
@@ -1654,7 +1702,30 @@ void SoundEngine::UpdateSounds(int time)
 				GSnd->UpdateSoundParams3D(&listener, chan, !!(chan->ChanFlags & CHANF_AREA), pos, vel);
 			}
 		}
-		chan->ChanFlags &= ~CHANF_JUSTSTARTED;
+
+		if (!reserved) {
+			chan->ChanFlags &= ~CHANF_JUSTSTARTED;
+		}
+		// If this channel is reserved but hasn't started, it might need to be purged
+		else {
+			// Point[0] should have stored the tick it was created on
+			// TODO: Don't use the world tick for timing, this is really stupid because we won't clear channels during menus
+			if (level.time - chan->Point[0] > GameTicRate * 4.0) {
+				// Purge this channel
+				chan->ChanFlags &= ~CHANF_RESERVED;
+				purges[purgeCnt++ % 5] = chan;
+			}
+		}
+	}
+
+	// Kill the channels
+	for (int x = 0; x < 5; x++) {
+		if (purges[x] != NULL) {
+#ifndef NDEBUG
+			Printf("Audio System: Purged [%s] (ID: %d), never resolved.\n", GetSoundName(purges[x]->SoundID), (int)purges[x]->SoundID);
+#endif
+			GSnd->StopChannel(purges[x]);
+		}
 	}
 
 	GSnd->UpdateListener(&listener);

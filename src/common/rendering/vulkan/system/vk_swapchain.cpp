@@ -190,7 +190,7 @@ bool VulkanSwapChain::CreateSwapChain(bool vsync, VkSwapchainKHR oldSwapChain)
 	swapChainCreateInfo.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
 
 	uint32_t queueFamilyIndices[] = { (uint32_t)device->graphicsFamily, (uint32_t)device->presentFamily };
-	if (device->graphicsFamily != device->presentFamily)
+	if (device->graphicsFamily != device->presentFamily && device->presentFamily >= 0)
 	{
 		swapChainCreateInfo.imageSharingMode = VK_SHARING_MODE_CONCURRENT;
 		swapChainCreateInfo.queueFamilyIndexCount = 2;

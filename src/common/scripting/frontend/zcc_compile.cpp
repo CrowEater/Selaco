@@ -1763,6 +1763,10 @@ PType *ZCCCompiler::DetermineType(PType *outertype, ZCC_TreeNode *field, FName n
 				retval = TypeSpriteID;
 				break;
 
+			case NAME_SoundHandle:
+				retval = TypeSoundHandle;
+				break;
+
 			case NAME_TextureID:
 				retval = TypeTextureID;
 				break;

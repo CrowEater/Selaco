@@ -15,22 +15,23 @@ void S_UpdateSounds(AActor* listenactor);
 void S_PrecacheLevel(FLevelLocals* l);
 
 // Start sound for thing at <ent>
-void S_Sound(int channel, EChanFlags flags, FSoundID sfxid, float volume, float attenuation);
-void S_SoundPitch(int channel, EChanFlags flags, FSoundID sfxid, float volume, float attenuation, float pitch, float startTime = 0.f);
+FSoundHandle S_Sound(int channel, EChanFlags flags, FSoundID sfxid, float volume, float attenuation);
+FSoundHandle S_SoundPitch(int channel, EChanFlags flags, FSoundID sfxid, float volume, float attenuation, float pitch, float startTime = 0.f);
 
 
-void S_Sound (AActor *ent, int channel, EChanFlags flags, FSoundID sfxid, float volume, float attenuation);
-void S_SoundMinMaxDist (AActor *ent, int channel, EChanFlags flags, FSoundID sfxid, float volume, float mindist, float maxdist);
-void S_Sound (const FPolyObj *poly, int channel, EChanFlags flags, FSoundID sfxid, float volume, float attenuation);
-void S_Sound (const sector_t *sec, int channel, EChanFlags flags, FSoundID sfxid, float volume, float attenuation);
-void S_Sound(FLevelLocals *Level, const DVector3 &pos, int channel, EChanFlags flags, FSoundID sfxid, float volume, float attenuation);
+FSoundHandle S_Sound (AActor *ent, int channel, EChanFlags flags, FSoundID sfxid, float volume, float attenuation);
+FSoundHandle S_SoundMinMaxDist (AActor *ent, int channel, EChanFlags flags, FSoundID sfxid, float volume, float mindist, float maxdist);
+FSoundHandle S_Sound (const FPolyObj *poly, int channel, EChanFlags flags, FSoundID sfxid, float volume, float attenuation);
+FSoundHandle S_Sound (const sector_t *sec, int channel, EChanFlags flags, FSoundID sfxid, float volume, float attenuation);
+FSoundHandle S_Sound(FLevelLocals *Level, const DVector3 &pos, int channel, EChanFlags flags, FSoundID sfxid, float volume, float attenuation);
 
-void S_SoundPitchActor (AActor *ent, int channel, EChanFlags flags, FSoundID sfxid, float volume, float attenuation, float pitch, float startTime = 0.f);
+FSoundHandle S_SoundPitchActor (AActor *ent, int channel, EChanFlags flags, FSoundID sfxid, float volume, float attenuation, float pitch, float startTime = 0.f);
 
 // [Nash] Used by ACS and DECORATE
 void S_PlaySound(AActor *a, int chan, EChanFlags flags, FSoundID sid, float vol, float atten);
 
 // Stops a sound emanating from one of an emitter's channels.
+bool S_StopSound (FSoundHandle& handle);
 void S_StopSound (AActor *ent, int channel);
 void S_StopSound (const sector_t *sec, int channel);
 void S_StopSound (const FPolyObj *poly, int channel);
@@ -48,16 +49,19 @@ int S_IsActorPlayingSomething (AActor *actor, int channel, int sound_id);
 
 // Change a playing sound's volume
 void S_ChangeActorSoundVolume(AActor *actor, int channel, double volume);
+bool S_ChangeSoundVolume(FSoundHandle handle, double vol);
 
 // Change a playing sound's pitch
 void S_ChangeActorSoundPitch(AActor *actor, int channel, double pitch);
 void S_ChangeSoundPitch(int channel, double pitch);
+bool S_ChangeSoundPitch(FSoundHandle &handle, double pitch);
 
 // Stores/retrieves playing channel information in an archive.
 void S_SerializeSounds(FSerializer &arc);
 
 void A_PlaySound(AActor *self, int soundid, int channel, double volume, int looping, double attenuation, int local, double pitch);
 void A_StartSound(AActor* self, int soundid, int channel, int flags, double volume, double attenuation,  double pitch, double startTime = 0.);
+int StartSound(AActor* self, int soundid, int channel, int flags, double volume, double attenuation, double pitch, double startTime = 0.);	// @Cockatrice - Native for zscript
 static void S_SetListener(AActor *listenactor);
 void S_SoundReset();
 void S_ResumeSound(bool state);
