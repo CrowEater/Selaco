@@ -1441,9 +1441,9 @@ add_custom_command(TARGET zdoom POST_BUILD
 if(APPLE)
 	# copy our script
 	add_custom_command(TARGET zdoom POST_BUILD  
-		COMMAND ${CMAKE_COMMAND} -E copy_if_different ${CMAKE_SOURCE_DIR}/tools/scripts/build_dxt_wad.py $<TARGET_FILE_DIR:zdoom>/../../Contents/Scripts/build_dxt_wad.py	)
+		COMMAND ${CMAKE_COMMAND} -E copy_if_different ${CMAKE_SOURCE_DIR}/tools/scripts/build_dxt_wad.py $<TARGET_FILE_DIR:zdoom>/../../Contents/Scripts/build_dxt_wad.py )
 		add_custom_command(TARGET zdoom POST_BUILD  
-		COMMAND ${CMAKE_COMMAND} -E copy_if_different ${CMAKE_SOURCE_DIR}/tools/scripts/requirements.txt $<TARGET_FILE_DIR:zdoom>/../../Contents/Scripts/build_dxt_wad.py	)
+		COMMAND ${CMAKE_COMMAND} -E copy_if_different ${CMAKE_SOURCE_DIR}/tools/scripts/requirements.txt $<TARGET_FILE_DIR:zdoom>/../../Contents/Scripts/requirements.txt )
 	# package up all the dynamic libraries and adjust paths
 	add_custom_command(TARGET zdoom POST_BUILD 
 		COMMAND python3 tools/scripts/package_selaco_osx.py $<TARGET_FILE_DIR:zdoom>/Selaco ${OSX_DYNAMIC_LIB}

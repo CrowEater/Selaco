@@ -13,7 +13,7 @@ class VulkanSwapChain;
 class VulkanSemaphore;
 class VulkanFence;
 
-
+#ifndef VK_MSFT_LAYERED_DRIVER_SPEC_VERSION
 // Provided by VK_MSFT_layered_driver
 typedef enum VkLayeredDriverUnderlyingApiMSFT {
 	VK_LAYERED_DRIVER_UNDERLYING_API_NONE_MSFT = 0,
@@ -26,7 +26,7 @@ typedef struct VkPhysicalDeviceLayeredDriverPropertiesMSFT {
 	void* pNext;
 	VkLayeredDriverUnderlyingApiMSFT    underlyingAPI;
 } VkPhysicalDeviceLayeredDriverPropertiesMSFT;
-
+#endif
 
 class VulkanPhysicalDevice
 {
