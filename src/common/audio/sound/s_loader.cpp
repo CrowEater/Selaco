@@ -59,114 +59,6 @@ ADD_STAT(audiothread)
 }
 
 
-/*AudioLoaderThread::AudioLoaderThread(AudioQItem &item) {
-	totalTime.Reset();
-	threadTime.Reset();
-	totalTime.Clock();
-
-	auto rl = fileSystem.GetFileAt(item.sfx->lumpnum);
-	auto reader = rl->Owner->GetReader();
-
-	if (!reader) {
-		FDirectory *fdir = dynamic_cast<FDirectory*>(rl->Owner);
-		if (!fdir || !dynamic_cast<FDirectoryLump*>(rl)) {
-			Printf(TEXTCOLOR_RED"AudioLoaderThread::No valid reader on owner for sfx : %s\n", item.sfx->name.GetChars());
-			data = nullptr;
-			mActive.store(false);
-			return;
-		}
-
-		// Should be a valid file reader now
-		readerCopy = rl->NewReader().CopyNew();
-	}
-
-	else { readerCopy = reader->CopyNew(); }
-
-	qItem = item;
-
-	std::thread sl(&AudioLoaderThread::startLoading, this);
-	mThread = std::move(sl);	// This seems dumb, how do I do this properly? I'm rusty.
-}
-
-AudioLoaderThread::~AudioLoaderThread() {
-	if (readerCopy) {
-		delete readerCopy;
-		readerCopy = nullptr;
-	}
-
-	// If for some reason we haven't taken ownership of the loaded data, destroy it here
-	// to prevent memory leaks
-	if (createdNewData && data != nullptr) {
-		delete[] data;
-	}
-
-	//Printf(TEXTCOLOR_BLUE"Deleted an audio loader thread.\n");
-}
-
-void AudioLoaderThread::startLoading() {
-	threadTime.Clock();
-
-	auto rl = fileSystem.GetFileAt(qItem.sfx->lumpnum);
-	auto reader = readerCopy;
-	int size = rl->LumpSize;
-
-	assert(readerCopy);
-
-	if (!rl->Cache) {
-		// This resource hasn't been cached yet, we need to read it manually
-		if (!reader) {
-			// TODO: Set up failure state
-			return;
-		}
-
-		// This function is designed to be thread safe so we should be okay here
-		data = new char[rl->LumpSize];
-		size = rl->ReadData(*reader, data);
-		createdNewData = true;
-
-		// TODO: THis is currently a memory leak situation because the data created here will never be released
-		// TODO: Find out how lump data is eventually freed and use the native process for that
-	}
-	else {
-		data = rl->Cache;
-	}
-
-
-	//std::this_thread::sleep_for(std::chrono::milliseconds(500));
-
-	// Try to interpret the data
-	if (size > 8)
-	{
-		int32_t dmxlen = LittleLong(((int32_t *)data)[1]);
-
-		// If the sound is voc, use the custom loader.
-		if (strncmp(data, "Creative Voice File", 19) == 0)
-		{
-			loadSnd = GSnd->LoadSoundVoc((uint8_t *)data, size);
-		}
-		// If the sound is raw, just load it as such.
-		else if (qItem.sfx->bLoadRAW)
-		{
-			loadSnd = GSnd->LoadSoundRaw((uint8_t *)data, size, qItem.sfx->RawRate, 1, 8, qItem.sfx->LoopStart);
-		}
-		// Otherwise, try the sound as DMX format.
-		else if (((uint8_t *)data)[0] == 3 && ((uint8_t *)data)[1] == 0 && dmxlen <= size - 8)
-		{
-			int frequency = LittleShort(((uint16_t *)data)[1]);
-			if (frequency == 0) frequency = 11025;
-			loadSnd = GSnd->LoadSoundRaw((uint8_t *)data + 8, dmxlen, frequency, 1, 8, qItem.sfx->LoopStart);
-		}
-		// If that fails, let the sound system try and figure it out.
-		else
-		{
-			loadSnd = GSnd->LoadSound((uint8_t *)data, size);
-		}
-	}
-
-	threadTime.Unclock();
-	mActive.store(false);
-}*/
-
 
 // TODO: Store the sound length in the output to be added to the resource
 bool AudioLoadThread::loadResource(AudioQInput &input, AudioQOutput &output) {
@@ -428,32 +320,6 @@ void AudioLoaderQueue::stopSound(FSoundID soundID) {
 
 
 void AudioLoaderQueue::stopSound(int channel, FSoundID soundID) {
-	/*for (AudioQItem &mm : mQueue) {
-		for (unsigned int x = 0; x < mm.playInfo.Size(); x++) {
-			if (mm.playInfo[x].type == SOURCE_None && 
-				(mm.soundID == soundID || soundID == -1) && 
-				(channel == CHAN_AUTO || channel == mm.playInfo[x].channel)) {
-				Printf("Stopping play of sound in queue by chan request: %s\n", mm.sfx->name.GetChars());
-				mm.playInfo.Delete(x);
-				x--;
-			}
-		}
-	}
-
-	// This should be safe, the threads never actually write to qItem or use playInfo, it's just along for the ride
-	// TODO: Synchronize access to the qItem just in case changes are made and I forget 
-	for (AudioLoaderThread *tt : mRunning) {
-		for (unsigned int x = 0; x < tt->qItem.playInfo.Size(); x++) {
-			if (tt->qItem.playInfo[x].type == SOURCE_None &&
-				(tt->qItem.soundID == soundID || soundID == -1) && 
-				(channel == CHAN_AUTO || channel == tt->qItem.playInfo[x].channel)) {
-				Printf("Stopping play of sound being loaded by chan request: %s\n", tt->qItem.sfx->name.GetChars());
-				tt->qItem.playInfo.Delete(x);
-				x--;
-			}
-		}
-	}*/
-
 	for (auto &pair : mPlayQueue) {
 		for (unsigned int x = 0; x < pair.second.Size(); x++) {
 			AudioQueuePlayInfo &info = pair.second[x];
@@ -471,35 +337,6 @@ void AudioLoaderQueue::stopSound(int channel, FSoundID soundID) {
 
 
 void AudioLoaderQueue::stopSound(int sourcetype, const void* actor, int channel, int soundID) {
-	/*AActor *a = sourcetype == SOURCE_Actor ? (AActor *)actor : NULL;
-	//Printf(TEXTCOLOR_RED"TRYING TO STOP : %d for %s\n", soundID, a ? a->GetCharacterName() : "<None>");
-
-	for (AudioQItem &mm : mQueue) {
-		for (unsigned int x = 0; x < mm.playInfo.Size(); x++) {
-			if (mm.playInfo[x].source == actor && 
-				mm.playInfo[x].type == sourcetype && 
-				(soundID == -1 ? (mm.playInfo[x].channel == channel || channel < 0) : (mm.soundID == soundID))) {
-				Printf(TEXTCOLOR_RED"Stopping play of sound in queue by actor:chan request: %s (%s)\n", mm.sfx->name.GetChars(), a ? a->GetCharacterName() : "<None>");
-				mm.playInfo.Delete(x);
-				x--;
-			}
-		}
-	}
-
-	// This should be safe, the threads never actually write to qItem or use playInfo, it's just along for the ride
-	// TODO: Synchronize access to the qItem just in case changes are made and I forget 
-	for (AudioLoaderThread *tt : mRunning) {
-		for (unsigned int x = 0; x < tt->qItem.playInfo.Size(); x++) {
-			if (tt->qItem.playInfo[x].source == actor && 
-				tt->qItem.playInfo[x].type == sourcetype && 
-				(soundID == -1 ? (tt->qItem.playInfo[x].channel == channel || channel < 0) : (tt->qItem.soundID == soundID))) {
-				Printf(TEXTCOLOR_RED"Stopping play of sound being loaded by actor:chan request: %s (%s)\n", tt->qItem.sfx->name.GetChars(), a ? a->GetCharacterName() : "<None>");
-				tt->qItem.playInfo.Delete(x);
-				x--;
-			}
-		}
-	}*/
-
 	for (auto &pair : mPlayQueue) {
 		for (unsigned int x = 0; x < pair.second.Size(); x++) {
 			AudioQueuePlayInfo &info = pair.second[x];
@@ -507,7 +344,7 @@ void AudioLoaderQueue::stopSound(int sourcetype, const void* actor, int channel,
 			if (info.source == actor &&
 				info.type == sourcetype &&
 				(soundID == -1 ? (info.channel == channel || channel < 0) : (pair.first == soundID))) {
-				AActor *a = sourcetype == SOURCE_Actor ? (AActor *)actor : NULL;
+				//AActor *a = sourcetype == SOURCE_Actor ? (AActor *)actor : NULL;
 				//Printf(TEXTCOLOR_RED"Stopping play of sound in queue by actor:chan request: %s (%s)\n", soundEngine->GetSfx(pair.first)->name.GetChars(), a ? a->GetCharacterName() : "<None>");
 				pair.second.Delete(x);
 				x--;
@@ -517,38 +354,21 @@ void AudioLoaderQueue::stopSound(int sourcetype, const void* actor, int channel,
 }
 
 
-void AudioLoaderQueue::stopActorSounds(int sourcetype, const void* actor, int chanmin, int chanmax) {
-	/*AActor *a = (AActor *)actor;
-	//Printf(TEXTCOLOR_RED"TRYING TO STOP ALL ACTOR SOUNDS for %s\n", a ? a->GetCharacterName() : "<None>");
+void AudioLoaderQueue::stopSound(FSoundHandle& handle) {
+	for (auto& pair : mPlayQueue) {
+		for (unsigned int x = 0; x < pair.second.Size(); x++) {
+			AudioQueuePlayInfo& info = pair.second[x];
 
-	const bool all = (chanmin == 0 && chanmax == 0);
-
-	for (AudioQItem &mm : mQueue) {
-		for (unsigned int x = 0; x < mm.playInfo.Size(); x++) {
-			if (mm.playInfo[x].source == actor && 
-				mm.playInfo[x].type == sourcetype && 
-				(all || (mm.playInfo[x].channel >= chanmin && mm.playInfo[x].channel <= chanmax))) {
-				Printf(TEXTCOLOR_RED"Stopping play of sound in queue by all actor request: %s (%s)\n", mm.sfx->name.GetChars(), a ? a->GetCharacterName() : "<None>");
-				mm.playInfo.Delete(x);
+			if (info.handle == handle) {
+				pair.second.Delete(x);
 				x--;
 			}
 		}
 	}
+}
 
-	// This should be safe, the threads never actually write to qItem or use playInfo, it's just along for the ride
-	// TODO: Synchronize access to the qItem just in case changes are made and I forget 
-	for (AudioLoaderThread *tt : mRunning) {
-		for (unsigned int x = 0; x < tt->qItem.playInfo.Size(); x++) {
-			if (tt->qItem.playInfo[x].source == actor && 
-				tt->qItem.playInfo[x].type == sourcetype && 
-				(all || (tt->qItem.playInfo[x].channel >= chanmin && tt->qItem.playInfo[x].channel <= chanmax))) {
-				Printf(TEXTCOLOR_RED"Stopping play of sound being loaded by all actor request: %s (%s)\n", tt->qItem.sfx->name.GetChars(), a ? a->GetCharacterName() : "<None>");
-				tt->qItem.playInfo.Delete(x);
-				x--;
-			}
-		}
-	}*/
 
+void AudioLoaderQueue::stopActorSounds(int sourcetype, const void* actor, int chanmin, int chanmax) {
 	const bool all = (chanmin == 0 && chanmax == 0);
 
 	for (auto &pair : mPlayQueue) {
@@ -569,47 +389,6 @@ void AudioLoaderQueue::stopActorSounds(int sourcetype, const void* actor, int ch
 
 int AudioLoaderQueue::getSoundPlayingInfo(int sourcetype, const void *source, int sound_id, int chann) {
 	int count = 0;
-
-	/*for (AudioQItem &mm : mQueue) {
-		for (unsigned int x = 0; x < mm.playInfo.Size(); x++) {
-			if (chann != -1 && chann != mm.playInfo[x].channel) continue;
-
-			if (sound_id > 0) {
-				if (mm.playInfo[x].orgSoundID == sound_id && (sourcetype == SOURCE_Any ||
-					(mm.playInfo[x].source == source)))
-				{
-					count++;
-				}
-			} else {
-				if ((sourcetype == SOURCE_Any || (mm.playInfo[x].source == source)))
-				{
-					count++;
-				}
-			}
-		}
-	}
-
-	// This should be safe, the threads never actually write to qItem or use playInfo, it's just along for the ride
-	// TODO: Synchronize access to the qItem just in case changes are made and I forget 
-	for (AudioLoaderThread *tt : mRunning) {
-		for (unsigned int x = 0; x < tt->qItem.playInfo.Size(); x++) {
-			if (chann != -1 && chann != tt->qItem.playInfo[x].channel) continue;
-
-			if (sound_id > 0) {
-				if (tt->qItem.playInfo[x].orgSoundID == sound_id && (sourcetype == SOURCE_Any ||
-					(tt->qItem.playInfo[x].source == source)))
-				{
-					count++;
-				}
-			}
-			else {
-				if ((sourcetype == SOURCE_Any || (tt->qItem.playInfo[x].source == source)))
-				{
-					count++;
-				}
-			}
-		}
-	}*/
 
 	for (auto &pair : mPlayQueue) {
 		for (const auto& playInfo : pair.second) {
@@ -636,16 +415,6 @@ int AudioLoaderQueue::getSoundPlayingInfo(int sourcetype, const void *source, in
 
 
 void AudioLoaderQueue::stopAllSounds() {
-	/*for (AudioQItem &mm : mQueue) {
-		Printf("Stopping play of sound in queue by All Sounds request: %s\n", mm.sfx->name.GetChars());
-		mm.playInfo.Clear();
-	}
-
-	for (AudioLoaderThread *tt : mRunning) {
-		Printf("Stopping play of sound currently loading by All Sounds request: %s\n", tt->qItem.sfx->name.GetChars());
-		tt->qItem.playInfo.Clear();
-	}*/
-
 	mPlayQueue.clear();
 }
 
@@ -701,7 +470,7 @@ void AudioLoaderQueue::update() {
 					playTime.Clock();
 
 					for (auto snd : playlist) {
-						soundEngine->StartSoundER(loaded.sfx, snd.type, snd.source, snd.pos, snd.vel, snd.channel, snd.flags, loaded.soundID, snd.orgSoundID, snd.volume, snd.attenuation, &snd.rolloff, snd.pitch, snd.startTime, false);
+						soundEngine->StartSoundER(loaded.sfx, snd.type, snd.source, snd.pos, snd.vel, snd.channel, snd.flags, loaded.soundID, snd.orgSoundID, snd.volume, snd.attenuation, &snd.rolloff, snd.pitch, snd.startTime, false, snd.handle);
 						numPlayed++;
 					}
 

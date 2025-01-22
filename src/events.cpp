@@ -308,6 +308,17 @@ bool EventManager::IsSaveAllowed(bool quicksave) {
 	return true;
 }
 
+
+void EventManager::PreSave(int saveType) {
+	for (DStaticEventHandler* handler = FirstEventHandler; handler; handler = handler->next)
+		handler->PreSave(saveType);
+}
+
+void EventManager::PostSave(int saveType) {
+	for (DStaticEventHandler* handler = FirstEventHandler; handler; handler = handler->next)
+		handler->PostSave(saveType);
+}
+
 FString EventManager::GetSavegameComments()
 {
 	struct Comment {
@@ -566,6 +577,30 @@ void EventManager::Stat(FString name, FString text, bool isAchievement, double v
 
 	for (DStaticEventHandler* handler = FirstEventHandler; handler; handler = handler->next)
 		handler->StatsEvent(name, text, isAchievement, value);
+}
+
+bool EventManager::SkillShouldChange(int oldSkill, int newSkill) {
+	bool success = true;
+
+	if (ShouldCallStatic(false))
+		if (!staticEventManager.SkillShouldChange(oldSkill, newSkill))
+			success = false;
+
+	for (DStaticEventHandler* handler = FirstEventHandler; handler; handler = handler->next)
+		if (!handler->SkillShouldChange(oldSkill, newSkill))
+			success = false;
+
+	return success;
+}
+
+void EventManager::SkillChanged(int oldSkill, int newSkill) {
+	bool success = true;
+
+	if (ShouldCallStatic(false))
+		staticEventManager.SkillChanged(oldSkill, newSkill);
+
+	for (DStaticEventHandler* handler = FirstEventHandler; handler; handler = handler->next)
+		handler->SkillChanged(oldSkill, newSkill);
 }
 
 void EventManager::RenderOverlay(EHudState state)
@@ -1046,12 +1081,32 @@ bool DStaticEventHandler::IsSaveAllowed(bool quicksave) {
 	{
 		int valid = 1;
 		VMReturn results[1] = { &valid };
-		VMValue params[2] = { (DStaticEventHandler*)this, &quicksave };
+		VMValue params[2] = { (DStaticEventHandler*)this, quicksave };
 		VMCall(func, params, 2, results, 1);
 		return !!valid;
 	}
 
 	return true;
+}
+
+
+void DStaticEventHandler::PreSave(int saveType) {
+	IFVIRTUAL(DStaticEventHandler, PreSave)
+	{
+		if (isEmpty(func)) return;
+		VMValue params[2] = { (DStaticEventHandler*)this, saveType };
+		VMCall(func, params, 2, nullptr, 0);
+	}
+}
+
+
+void DStaticEventHandler::PostSave(int saveType) {
+	IFVIRTUAL(DStaticEventHandler, PostSave)
+	{
+		if (isEmpty(func)) return;
+		VMValue params[2] = { (DStaticEventHandler*)this, saveType };
+		VMCall(func, params, 2, nullptr, 0);
+	}
 }
 
 FRenderEvent EventManager::SetupRenderEvent()
@@ -1242,6 +1297,36 @@ void DStaticEventHandler::StatsEvent(FString name, FString text, bool isAchievem
 		VMValue params[2] = { (DStaticEventHandler*)this, &e };
 		VMCall(func, params, 2, nullptr, 0);
 	}
+}
+
+
+bool DStaticEventHandler::SkillShouldChange(int oldSkill, int newSkill) {
+	IFVIRTUAL(DStaticEventHandler, SkillShouldChange)
+	{
+		// don't create excessive DObjects if not going to be processed anyway
+		if (isEmpty(func)) return true;
+
+		int bbool = 1;
+		VMValue params[3] = { (DStaticEventHandler*)this, oldSkill, newSkill };
+		VMReturn ret(&bbool);
+		VMCall(func, params, countof(params), &ret, 1);
+		return bbool;
+	}
+
+	return true;
+}
+
+void DStaticEventHandler::SkillChanged(int oldSkill, int newSkill) {
+	IFVIRTUAL(DStaticEventHandler, SkillChanged)
+	{
+		// don't create excessive DObjects if not going to be processed anyway
+		if (isEmpty(func)) return;
+
+		int bbool = 1;
+		VMValue params[3] = { (DStaticEventHandler*)this, oldSkill, newSkill };
+		VMCall(func, params, countof(params), nullptr, 0);
+	}
+
 }
 
 void DStaticEventHandler::ConsoleProcess(int player, FString name, int arg1, int arg2, int arg3, bool manual)

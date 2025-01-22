@@ -129,7 +129,7 @@ extend class Object
 		return level.PickPlayerStart(pnum, flags);
 	}
 	deprecated("4.3", "Use S_StartSound() instead") native static void S_Sound (Sound sound_id, int channel, float volume = 1, float attenuation = ATTN_NORM, float pitch = 0.0, float startTime = 0.0);
-	native static void S_StartSound (Sound sound_id, int channel, int flags = 0, float volume = 1, float attenuation = ATTN_NORM, float pitch = 0.0, float startTime = 0.0);
+	native static SoundHandle S_StartSound (Sound sound_id, int channel, int flags = 0, float volume = 1, float attenuation = ATTN_NORM, float pitch = 0.0, float startTime = 0.0);
 	native static void S_StopSound (int channel, Sound sound_id = -1);
 	native static void S_PauseSound (bool notmusic, bool notsfx);
 	native static void S_ResumeSound (bool notsfx);
@@ -535,6 +535,8 @@ struct LevelLocals native
 	native void StartNewGame(int episode, int skill = -1, string className = "", string levelName = "");
 	native void ReturnToTitle();
 	native void QuitGame();
+
+	native void SetNewSkill(int newSkill);
 }
 
 // a few values of this need to be readable by the play code.

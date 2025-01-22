@@ -294,6 +294,9 @@ void S_Start()
 		// kill all playing sounds at start of level (trust me - a good idea)
 		soundEngine->StopAllChannels();
 
+		// @Cockatrice - Reset sound engine handle IDs, will be overwritten if the savegame has stored it too
+		soundEngine->LastSoundHandle = 0;
+
 		// reset the listener so any new audio playing before we are positioned is not heard
 		S_SetListener(nullptr);
 
@@ -404,14 +407,18 @@ void S_InitData()
 //
 //==========================================================================
 
-void S_SoundPitch(int channel, EChanFlags flags, FSoundID sound_id, float volume, float attenuation, float pitch, float startTime)
+FSoundHandle S_SoundPitch(int channel, EChanFlags flags, FSoundID sound_id, float volume, float attenuation, float pitch, float startTime)
 {
-	soundEngine->StartSound(SOURCE_None, nullptr, nullptr, channel, flags, sound_id, volume, attenuation, 0, pitch, startTime);
+	FSoundHandle handle;
+	soundEngine->StartSound(SOURCE_None, nullptr, nullptr, channel, flags, sound_id, volume, attenuation, 0, pitch, startTime, &handle);
+	return handle;
 }
 
-void S_Sound(int channel, EChanFlags flags, FSoundID sound_id, float volume, float attenuation)
+FSoundHandle S_Sound(int channel, EChanFlags flags, FSoundID sound_id, float volume, float attenuation)
 {
-	soundEngine->StartSound (SOURCE_None, nullptr, nullptr, channel, flags, sound_id, volume, attenuation, 0, 0.f);
+	FSoundHandle handle;
+	soundEngine->StartSound (SOURCE_None, nullptr, nullptr, channel, flags, sound_id, volume, attenuation, 0, 0.f, 0.f, &handle);
+	return handle;
 }
 
 void S_StopSoundID(int channel, FSoundID sound_id) {
@@ -441,8 +448,8 @@ DEFINE_ACTION_FUNCTION(DObject, S_StartSound)
 	PARAM_FLOAT(attn);
 	PARAM_FLOAT(pitch);
 	PARAM_FLOAT(startTime);
-	S_SoundPitch(channel, EChanFlags::FromInt(flags), id, static_cast<float>(volume), static_cast<float>(attn), static_cast<float>(pitch), static_cast<float>(startTime));
-	return 0;
+	ACTION_RETURN_INT(S_SoundPitch(channel, EChanFlags::FromInt(flags), id, static_cast<float>(volume), static_cast<float>(attn), static_cast<float>(pitch), static_cast<float>(startTime)));
+	return 1;
 }
 
 DEFINE_ACTION_FUNCTION(DObject, S_StopSound)
@@ -463,6 +470,47 @@ DEFINE_ACTION_FUNCTION(DObject, S_SoundPitch)
 
 	S_ChangeSoundPitch(channel, pitch);
 	return 0;
+}
+
+
+// @Cockatice - Funcs for SoundHandle
+// None
+DEFINE_ACTION_FUNCTION(FSoundHandleStruct, SetPitch)
+{
+	PARAM_PROLOGUE;
+	PARAM_POINTER(handle, FSoundHandle);
+	PARAM_FLOAT(pitch);
+
+	FSoundHandle hhandle(handle != NULL ? (int)*handle : 0);
+	ACTION_RETURN_BOOL(S_ChangeSoundPitch(hhandle, pitch));
+}
+
+DEFINE_ACTION_FUNCTION(FSoundHandleStruct, StopSound)
+{
+	PARAM_PROLOGUE;
+	PARAM_POINTER(handle, FSoundHandle);
+	FSoundHandle hhandle(handle != NULL ? (int)*handle : 0);
+	ACTION_RETURN_BOOL(S_StopSound(hhandle));
+}
+
+DEFINE_ACTION_FUNCTION(FSoundHandleStruct, SetVolume)
+{
+	PARAM_PROLOGUE;
+	PARAM_POINTER(handle, FSoundHandle);
+	PARAM_FLOAT(vol);
+
+	FSoundHandle hhandle(handle != NULL ? (int)*handle : 0);
+	ACTION_RETURN_BOOL(S_ChangeSoundVolume(hhandle, vol));
+}
+
+
+DEFINE_ACTION_FUNCTION(FSoundHandleStruct, IsPlaying)
+{
+	PARAM_PROLOGUE;
+	PARAM_POINTER(handle, FSoundHandle);
+
+	FSoundHandle hhandle(handle != NULL ? (int)*handle : 0);
+	ACTION_RETURN_BOOL(soundEngine->IsPlaying(hhandle));
 }
 
 
@@ -545,15 +593,19 @@ void DoomSoundEngine::StopChannel(FSoundChan* chan)
 //
 //==========================================================================
 
-void S_SoundPitchActor(AActor *ent, int channel, EChanFlags flags, FSoundID sound_id, float volume, float attenuation, float pitch, float startTime)
+FSoundHandle S_SoundPitchActor(AActor *ent, int channel, EChanFlags flags, FSoundID sound_id, float volume, float attenuation, float pitch, float startTime)
 {
-	if (VerifyActorSound(ent, sound_id, channel, flags))
-		soundEngine->StartSound (SOURCE_Actor, ent, nullptr, channel, flags, sound_id, volume, attenuation, 0, pitch, startTime);
+	if (VerifyActorSound(ent, sound_id, channel, flags)) {
+		FSoundHandle handle;
+		soundEngine->StartSound(SOURCE_Actor, ent, nullptr, channel, flags, sound_id, volume, attenuation, 0, pitch, startTime, &handle);
+		return handle;
+	}
+	return 0;
 }
 
-void S_Sound(AActor *ent, int channel, EChanFlags flags, FSoundID sound_id, float volume, float attenuation)
+FSoundHandle S_Sound(AActor *ent, int channel, EChanFlags flags, FSoundID sound_id, float volume, float attenuation)
 {
-	S_SoundPitchActor(ent, channel, flags, sound_id, volume, attenuation, 0.f);
+	return S_SoundPitchActor(ent, channel, flags, sound_id, volume, attenuation, 0.f);
 }
 
 //==========================================================================
@@ -564,7 +616,7 @@ void S_Sound(AActor *ent, int channel, EChanFlags flags, FSoundID sound_id, floa
 //
 //==========================================================================
 
-void S_SoundMinMaxDist(AActor *ent, int channel, EChanFlags flags, FSoundID sound_id, float volume, float mindist, float maxdist)
+FSoundHandle S_SoundMinMaxDist(AActor *ent, int channel, EChanFlags flags, FSoundID sound_id, float volume, float mindist, float maxdist)
 {
 	if (VerifyActorSound(ent, sound_id, channel, flags))
 	{
@@ -573,8 +625,11 @@ void S_SoundMinMaxDist(AActor *ent, int channel, EChanFlags flags, FSoundID soun
 		rolloff.RolloffType = ROLLOFF_Linear;
 		rolloff.MinDistance = mindist;
 		rolloff.MaxDistance = maxdist;
-		soundEngine->StartSound(SOURCE_Actor, ent, nullptr, channel, flags, sound_id, volume, 1, &rolloff);
+		FSoundHandle handle;
+		soundEngine->StartSound(SOURCE_Actor, ent, nullptr, channel, flags, sound_id, volume, 1, &rolloff, 0.0f, 0.0f, &handle);
+		return handle;
 	}
+	return 0;
 }
 
 //==========================================================================
@@ -583,10 +638,12 @@ void S_SoundMinMaxDist(AActor *ent, int channel, EChanFlags flags, FSoundID soun
 //
 //==========================================================================
 
-void S_Sound (const FPolyObj *poly, int channel, EChanFlags flags, FSoundID sound_id, float volume, float attenuation)
+FSoundHandle S_Sound (const FPolyObj *poly, int channel, EChanFlags flags, FSoundID sound_id, float volume, float attenuation)
 {
-	if (poly->Level != primaryLevel) return;
-	soundEngine->StartSound (SOURCE_Polyobj, poly, nullptr, channel, flags, sound_id, volume, attenuation);
+	if (poly->Level != primaryLevel) return 0;
+	FSoundHandle handle;
+	soundEngine->StartSound (SOURCE_Polyobj, poly, nullptr, channel, flags, sound_id, volume, attenuation, nullptr, 0.0f, 0.0f, &handle);
+	return handle;
 }
 
 //==========================================================================
@@ -595,12 +652,14 @@ void S_Sound (const FPolyObj *poly, int channel, EChanFlags flags, FSoundID soun
 //
 //==========================================================================
 
-void S_Sound(FLevelLocals *Level, const DVector3 &pos, int channel, EChanFlags flags, FSoundID sound_id, float volume, float attenuation)
+FSoundHandle S_Sound(FLevelLocals *Level, const DVector3 &pos, int channel, EChanFlags flags, FSoundID sound_id, float volume, float attenuation)
 {
-	if (Level != primaryLevel) return;
+	if (Level != primaryLevel) return 0;
 	// The sound system switches Y and Z around.
 	FVector3 p((float)pos.X, (float)pos.Z, (float)pos.Y);
-	soundEngine->StartSound (SOURCE_Unattached, nullptr, &p, channel, flags, sound_id, volume, attenuation);
+	FSoundHandle handle;
+	soundEngine->StartSound (SOURCE_Unattached, nullptr, &p, channel, flags, sound_id, volume, attenuation, nullptr, 0.0f, 0.0f, &handle);
+	return handle;
 }
 
 //==========================================================================
@@ -609,10 +668,12 @@ void S_Sound(FLevelLocals *Level, const DVector3 &pos, int channel, EChanFlags f
 //
 //==========================================================================
 
-void S_Sound (const sector_t *sec, int channel, EChanFlags flags, FSoundID sfxid, float volume, float attenuation)
+FSoundHandle S_Sound (const sector_t *sec, int channel, EChanFlags flags, FSoundID sfxid, float volume, float attenuation)
 {
-	if (sec->Level != primaryLevel) return;
-	soundEngine->StartSound (SOURCE_Sector, sec, nullptr, channel, flags, sfxid, volume, attenuation);
+	if (sec->Level != primaryLevel) return 0;
+	FSoundHandle handle;
+	soundEngine->StartSound (SOURCE_Sector, sec, nullptr, channel, flags, sfxid, volume, attenuation, nullptr, 0.0f, 0.0f, &handle);
+	return handle;
 }
 
 //==========================================================================
@@ -623,16 +684,16 @@ void S_Sound (const sector_t *sec, int channel, EChanFlags flags, FSoundID sfxid
 //
 //==========================================================================
 
-void S_PlaySoundPitch(AActor *a, int chan, EChanFlags flags, FSoundID sid, float vol, float atten, float pitch, float startTime = 0.f)
+FSoundHandle S_PlaySoundPitch(AActor *a, int chan, EChanFlags flags, FSoundID sid, float vol, float atten, float pitch, float startTime = 0.f)
 {
 	if (a == nullptr || a->Sector->Flags & SECF_SILENT || a->Level != primaryLevel)
-		return;
+		return 0;
 
 	if (!(flags & CHANF_LOCAL))
 	{
 		if (!(flags & CHANF_NOSTOP) || !S_IsActorPlayingSomething(a, chan, sid))
 		{
-			S_SoundPitchActor(a, chan, flags, sid, vol, atten, pitch, startTime);
+			return S_SoundPitchActor(a, chan, flags, sid, vol, atten, pitch, startTime);
 		}
 	}
 	else
@@ -641,10 +702,11 @@ void S_PlaySoundPitch(AActor *a, int chan, EChanFlags flags, FSoundID sid, float
 		{
 			if (!(flags & CHANF_NOSTOP) || !soundEngine->IsSourcePlayingSomething(SOURCE_None, nullptr, chan, sid))
 			{
-				S_SoundPitch(chan, flags, sid, vol, ATTN_NONE, pitch, startTime);
+				return S_SoundPitch(chan, flags, sid, vol, ATTN_NONE, pitch, startTime);
 			}
 		}
 	}
+	return 0;
 }
 
 void S_PlaySound(AActor *a, int chan, EChanFlags flags, FSoundID sid, float vol, float atten)
@@ -657,6 +719,11 @@ void A_StartSound(AActor *self, int soundid, int channel, int flags, double volu
 	S_PlaySoundPitch(self, channel, EChanFlags::FromInt(flags), soundid, (float)volume, (float)attenuation, (float)pitch, (float)startTime);
 }
 
+int StartSound(AActor* self, int soundid, int channel, int flags, double volume, double attenuation, double pitch, double startTime)
+{
+	return S_PlaySoundPitch(self, channel, EChanFlags::FromInt(flags), soundid, (float)volume, (float)attenuation, (float)pitch, (float)startTime);
+}
+
 void A_PlaySound(AActor* self, int soundid, int channel, double volume, int looping, double attenuation, int local, double pitch)
 {
 	if (looping) channel |= CHANF_LOOP | CHANF_NOSTOP;
@@ -664,6 +731,10 @@ void A_PlaySound(AActor* self, int soundid, int channel, double volume, int loop
 	A_StartSound(self, soundid, channel & 7, channel & ~7, volume, attenuation, pitch, 0.0f);
 }
 
+
+bool S_StopSound(FSoundHandle& handle) {
+	return soundEngine->StopSound(handle);
+}
 
 //==========================================================================
 //
@@ -743,6 +814,10 @@ void S_ChangeActorSoundVolume(AActor *actor, int channel, double dvolume)
 	soundEngine->ChangeSoundVolume(SOURCE_Actor, actor, (compatflags & COMPATF_MAGICSILENCE)? -1 : channel, dvolume);
 }
 
+bool S_ChangeSoundVolume(FSoundHandle handle, double vol) {
+	return soundEngine->SetVolume(handle, (float)vol);
+}
+
 //==========================================================================
 //
 // S_ChangeSoundPitch
@@ -756,6 +831,10 @@ void S_ChangeActorSoundPitch(AActor *actor, int channel, double pitch)
 
 void S_ChangeSoundPitch(int channel, double pitch) {
 	soundEngine->ChangeSoundPitch(SOURCE_None, nullptr, channel, pitch);
+}
+
+bool S_ChangeSoundPitch(FSoundHandle &handle, double pitch) {
+	return soundEngine->SetPitch(handle, (float)pitch);
 }
 
 //==========================================================================
@@ -863,7 +942,12 @@ static FSerializer &Serialize(FSerializer &arc, const char *key, FSoundChan &cha
 {
 	if (arc.BeginObject(key))
 	{
+		if (arc.isReading()) {
+			chan.HandleID = 0;
+		}
+
 		arc("sourcetype", chan.SourceType)
+			("handleid", chan.HandleID)
 			("soundid", chan.SoundID)
 			("orgid", chan.OrgID)
 			("volume", chan.Volume)
@@ -878,6 +962,11 @@ static FSerializer &Serialize(FSerializer &arc, const char *key, FSoundChan &cha
 			("rolloffmin", chan.Rolloff.MinDistance)
 			("rolloffmax", chan.Rolloff.MaxDistance)
 			("limitrange", chan.LimitRange);
+
+		// If there is no handleid, we must create one
+		if (arc.isReading() && chan.HandleID == 0) {
+			chan.HandleID = ++soundEngine->LastSoundHandle;
+		}
 
 		switch (chan.SourceType)
 		{
@@ -904,6 +993,12 @@ void S_SerializeSounds(FSerializer &arc)
 	FSoundChan *chan;
 
 	GSnd->Sync(true);
+
+	if (arc.isReading()) {
+		soundEngine->LastSoundHandle = 0;
+	}
+
+	arc("soundhandlestart", soundEngine->LastSoundHandle);
 
 	if (arc.isWriting())
 	{

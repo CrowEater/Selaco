@@ -85,6 +85,12 @@ struct ReplacedEvent native version("3.7")
 	native bool IsFinal;
 }
 
+enum SaveType {
+    SAVE_MANUAL = 0,
+    SAVE_QUICK  = 1,
+    SAVE_AUTO   = 2
+}
+
 class StaticEventHandler : Object native play version("2.4")
 {
     // static event handlers CAN register other static event handlers.
@@ -111,8 +117,10 @@ class StaticEventHandler : Object native play version("2.4")
     virtual void WorldLineDamaged(WorldEvent e) {}
     virtual void WorldLightning(WorldEvent e) {} // for the sake of completeness.
     virtual void WorldTick() {}
-	virtual String, Int GetSavegameComment() { return "", 0; }	// @Cockatrice - Supply additional information to the savegame comment field during a save
+	virtual String, Int GetSavegameComment() { return "", 0; }	              // @Cockatrice - Supply additional information to the savegame comment field during a save
     virtual bool IsSaveAllowed(bool quicksave) { return true; }               // @Cockatrice - Returning false from any event manager will prevent a savegame
+    virtual void PreSave(int type) {}                                         // @Cockatrice - Called before any type of save. Use this to alter the world before save
+    virtual void PostSave(int type) {}                                        // @Cockatrice - Called after any type of save. Use this to alter the world after save (not saving the changes)
 
     //
     //virtual ui void RenderFrame(RenderEvent e) {}
@@ -143,6 +151,10 @@ class StaticEventHandler : Object native play version("2.4")
     // 
     virtual ui void StatProcess(StatsEvent e) {}
     //virtual void WorldStatProcess(StatsEvent e) {}
+
+    //
+    virtual void SkillChanged(int oldSkill, int newSkill) {}
+    virtual bool SkillShouldChange(int oldSkill, int newSkill) { return true; }
 
     //
     virtual  void NewGame() {}

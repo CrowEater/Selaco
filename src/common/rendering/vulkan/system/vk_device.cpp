@@ -281,6 +281,13 @@ void VulkanDevice::SelectPhysicalDevice()
 		static const int typeSort[] = { 4, 1, 0, 2, 3 };
 		int sortA = a.device->Properties.deviceType < 5 ? typeSort[(int)a.device->Properties.deviceType] : (int)a.device->Properties.deviceType;
 		int sortB = b.device->Properties.deviceType < 5 ? typeSort[(int)b.device->Properties.deviceType] : (int)b.device->Properties.deviceType;
+
+		if (sortA != sortB)
+			return sortA < sortB;
+
+		// Any driver that is emulating vulkan (i.e. via Direct3D 12) should only be chosen as the last option within each GPU type
+		sortA = a.device->LayerProperties.underlyingAPI;
+		sortB = b.device->LayerProperties.underlyingAPI;
 		if (sortA != sortB)
 			return sortA < sortB;
 
@@ -364,13 +371,13 @@ void VulkanDevice::CreateDevice()
 	float queuePriority[] = { 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f };
 	std::vector<VkDeviceQueueCreateInfo> queueCreateInfos;
 
-	std::set<int> neededFamilies;
+	/*std::set<int> neededFamilies;
 	neededFamilies.insert(graphicsFamily);
 	if(presentFamily != -2) neededFamilies.insert(presentFamily);
-	neededFamilies.insert(uploadFamily);
+	neededFamilies.insert(uploadFamily);*/
 
 	int graphicsFamilySlot = CreateOrModifyQueueInfo(queueCreateInfos, graphicsFamily, queuePriority);
-	int presentFamilySlot = presentFamily == -2 ? -1 : CreateOrModifyQueueInfo(queueCreateInfos, presentFamily, queuePriority);
+	int presentFamilySlot = presentFamily < 0 ? -1 : CreateOrModifyQueueInfo(queueCreateInfos, presentFamily, queuePriority);
 	
 	// Request as many upload queues as desired and supported. Minimum 1
 	std::vector<int> uploadFamilySlots;
@@ -427,7 +434,14 @@ void VulkanDevice::CreateDevice()
 	volkLoadDevice(device);
 
 	vkGetDeviceQueue(device, graphicsFamily, graphicsFamilySlot, &graphicsQueue);
-	vkGetDeviceQueue(device, presentFamily, presentFamilySlot != -1 ? presentFamilySlot : graphicsFamilySlot, &presentQueue);
+
+	if (presentFamily >= 0 && presentFamilySlot >= 0) {
+		vkGetDeviceQueue(device, presentFamily, presentFamilySlot, &presentQueue);
+	}
+	else {
+		vkGetDeviceQueue(device, graphicsFamily, graphicsFamilySlot, &presentQueue);
+	}
+	
 	
 	// Upload queues
 	VulkanUploadSlot slot = { VK_NULL_HANDLE, uploadFamily, uploadFamilySlots[0], uploadFamilySupportsGraphics };
@@ -684,6 +698,10 @@ std::vector<VulkanPhysicalDevice> VulkanDevice::GetPhysicalDevices(VkInstance in
 		vkGetPhysicalDeviceMemoryProperties(dev.Device, &dev.MemoryProperties);
 		vkGetPhysicalDeviceProperties(dev.Device, &dev.Properties);
 		vkGetPhysicalDeviceFeatures(dev.Device, &dev.Features);
+		
+		if (vkGetPhysicalDeviceProperties2) {
+			vkGetPhysicalDeviceProperties2(dev.Device, &dev.Properties2);
+		}
 
 		uint32_t queueFamilyCount = 0;
 		vkGetPhysicalDeviceQueueFamilyProperties(dev.Device, &queueFamilyCount, nullptr);
