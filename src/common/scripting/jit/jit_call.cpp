@@ -97,7 +97,7 @@ void JitCompiler::EmitVMCall(asmjit::X86Gp vmfunc, VMFunction *target)
 	call->setArg(2, Imm(B));
 	call->setArg(3, GetCallReturns());
 	call->setArg(4, Imm(C));
-	call->setInlineComment(target ? target->PrintableName.GetChars() : "VMCall");
+	call->setInlineComment(target ? target->PrintableName : "VMCall");
 
 	LoadInOuts();
 	LoadReturns(pc + 1, C);
@@ -182,6 +182,13 @@ int JitCompiler::StoreCallParams()
 			}
 			numparams += 2;
 			break;
+		case REGT_FLOAT | REGT_MULTIREG4:
+			for (int j = 0; j < 4; j++)
+			{
+				cc.movsd(x86::qword_ptr(vmframe, offsetParams + (slot + j) * sizeof(VMValue) + myoffsetof(VMValue, f)), regF[bc + j]);
+			}
+			numparams += 3;
+			break;
 		case REGT_FLOAT | REGT_ADDROF:
 			cc.lea(stackPtr, x86::ptr(vmframe, offsetF + (int)(bc * sizeof(double))));
 			// When passing the address to a float we don't know if the receiving function will treat it as float, vec2 or vec3.
@@ -255,6 +262,12 @@ void JitCompiler::LoadCallResult(int type, int regnum, bool addrof)
 		{
 			cc.movsd(regF[regnum + 1], asmjit::x86::qword_ptr(vmframe, offsetF + (regnum + 1) * sizeof(double)));
 			cc.movsd(regF[regnum + 2], asmjit::x86::qword_ptr(vmframe, offsetF + (regnum + 2) * sizeof(double)));
+		}
+		else if (type & REGT_MULTIREG4)
+		{
+			cc.movsd(regF[regnum + 1], asmjit::x86::qword_ptr(vmframe, offsetF + (regnum + 1) * sizeof(double)));
+			cc.movsd(regF[regnum + 2], asmjit::x86::qword_ptr(vmframe, offsetF + (regnum + 2) * sizeof(double)));
+			cc.movsd(regF[regnum + 3], asmjit::x86::qword_ptr(vmframe, offsetF + (regnum + 3) * sizeof(double)));
 		}
 		break;
 	case REGT_STRING:
@@ -347,7 +360,7 @@ void JitCompiler::EmitNativeCall(VMNativeFunction *target)
 
 	asmjit::CBNode *cursorBefore = cc.getCursor();
 	auto call = cc.call(imm_ptr(target->DirectNativeCall), CreateFuncSignature());
-	call->setInlineComment(target->PrintableName.GetChars());
+	call->setInlineComment(target->PrintableName);
 	asmjit::CBNode *cursorAfter = cc.getCursor();
 	cc.setCursor(cursorBefore);
 
@@ -407,6 +420,11 @@ void JitCompiler::EmitNativeCall(VMNativeFunction *target)
 				for (int j = 0; j < 3; j++)
 					call->setArg(slot + j, regF[bc + j]);
 				numparams += 2;
+				break;
+			case REGT_FLOAT | REGT_MULTIREG4:
+				for (int j = 0; j < 4; j++)
+					call->setArg(slot + j, regF[bc + j]);
+				numparams += 3;
 				break;
 			case REGT_FLOAT | REGT_KONST:
 				tmp = newTempIntPtr();
@@ -550,6 +568,12 @@ void JitCompiler::EmitNativeCall(VMNativeFunction *target)
 			cc.movsd(regF[regnum + 1], asmjit::x86::qword_ptr(vmframe, offsetF + (regnum + 1) * sizeof(double)));
 			cc.movsd(regF[regnum + 2], asmjit::x86::qword_ptr(vmframe, offsetF + (regnum + 2) * sizeof(double)));
 			break;
+		case REGT_FLOAT | REGT_MULTIREG4:
+			cc.movsd(regF[regnum], asmjit::x86::qword_ptr(vmframe, offsetF + regnum * sizeof(double)));
+			cc.movsd(regF[regnum + 1], asmjit::x86::qword_ptr(vmframe, offsetF + (regnum + 1) * sizeof(double)));
+			cc.movsd(regF[regnum + 2], asmjit::x86::qword_ptr(vmframe, offsetF + (regnum + 2) * sizeof(double)));
+			cc.movsd(regF[regnum + 3], asmjit::x86::qword_ptr(vmframe, offsetF + (regnum + 3) * sizeof(double)));
+			break;
 		case REGT_STRING:
 			// We don't have to do anything in this case. String values are never moved to virtual registers.
 			break;
@@ -624,6 +648,13 @@ asmjit::FuncSignature JitCompiler::CreateFuncSignature()
 				args.Push(TypeIdOf<double>::kTypeId);
 				key += "fff";
 				break;
+			case REGT_FLOAT | REGT_MULTIREG4:
+				args.Push(TypeIdOf<double>::kTypeId);
+				args.Push(TypeIdOf<double>::kTypeId);
+				args.Push(TypeIdOf<double>::kTypeId);
+				args.Push(TypeIdOf<double>::kTypeId);
+				key += "ffff";
+				break;
 
 			default:
 				I_Error("Unknown REGT value passed to EmitPARAM\n");
@@ -687,4 +718,9 @@ asmjit::FuncSignature JitCompiler::CreateFuncSignature()
 	FuncSignature signature;
 	signature.init(CallConv::kIdHost, rettype, cachedArgs->Data(), cachedArgs->Size());
 	return signature;
+}
+
+void JitCompiler::EmitNULLCHECK()
+{
+	EmitNullPointerThrow(A, X_READ_NIL);
 }

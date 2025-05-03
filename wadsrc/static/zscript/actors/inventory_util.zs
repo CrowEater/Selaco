@@ -291,6 +291,8 @@ extend class Actor
 	{
 		Inventory drop = item.CreateTossable(amt);
 		if (drop == null) return NULL;
+		drop.ClearLocalPickUps();
+		drop.bNeverLocal = true;
 		drop.SetOrigin(Pos + (0, 0, 10.), false);
 		drop.Angle = Angle;
 		drop.VelFromAngle(5.);
@@ -853,8 +855,22 @@ extend class Actor
 		}
 	}
 
+	clearscope static class<BasicArmor> GetBasicArmorClass()
+	{
+		class<BasicArmor> cls = (class<BasicArmor>)(GameInfo.BasicArmorClass);
+		if (cls)
+			return cls;
 
+		return "BasicArmor";
+	}
 
+	clearscope static class<HexenArmor> GetHexenArmorClass()
+	{
+		class<HexenArmor> cls = (class<HexenArmor>)(GameInfo.HexenArmorClass);
+		if (cls)
+			return cls;
 
+		return "HexenArmor";
+	}
 
 }

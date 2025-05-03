@@ -1,3 +1,60 @@
+enum ENetCmd
+{
+	NET_INT8 = 1,
+	NET_INT16,
+	NET_INT,
+	NET_FLOAT,
+	NET_DOUBLE,
+	NET_STRING,
+}
+
+struct NetworkCommand native play version("4.12")
+{
+    native readonly int Player;
+    native readonly Name Command;
+
+    native int ReadInt8();
+    native int ReadInt16();
+    native int ReadInt();
+    native double ReadFloat();
+    native double ReadDouble();
+    native string ReadString();
+    native bool EndOfStream();
+
+    // Wrappers
+    native Name ReadName();
+    native double ReadMapUnit(); // 16.16 int -> double
+    native double ReadAngle(); // BAM int -> double
+    native Vector2 ReadVector2();
+    native Vector3 ReadVector3();
+    native Vector4 ReadVector4();
+    native Quat ReadQuat();
+    native void ReadIntArray(out Array<int> values, ENetCmd intSize = NET_INT);
+    native void ReadDoubleArray(out Array<double> values, bool doublePrecision = true);
+    native void ReadStringArray(out Array<string> values, bool skipEmpty = false);
+}
+
+class NetworkBuffer native version("4.12")
+{
+    native void AddInt8(int value);
+    native void AddInt16(int value);
+    native void AddInt(int value);
+    native void AddFloat(double value);
+    native void AddDouble(double value);
+    native void AddString(string value);
+
+    // Wrappers
+    native void AddName(Name value);
+    native void AddMapUnit(double value); // double -> 16.16 int
+    native void AddAngle(double value); // double -> BAM int
+    native void AddVector2(Vector2 value);
+    native void AddVector3(Vector3 value);
+    native void AddVector4(Vector4 value);
+    native void AddQuat(Quat value);
+    native void AddIntArray(Array<int> values, ENetCmd intSize = NET_INT);
+    native void AddDoubleArray(Array<double> values, bool doublePrecision = true);
+    native void AddStringArray(Array<string> values);
+}
 
 struct RenderEvent native ui version("2.4")
 {
@@ -91,6 +148,16 @@ enum SaveType {
     SAVE_AUTO   = 2
 }
 
+enum EventManagerError {
+	ERR_UNKNOWN			= 0,
+	ERR_UNKNOWN_ABORT	= 1,
+	ERR_LOADGAME		= 2,
+    ERR_MISSINGMAP      = 3,
+    ERR_LOADOBJECTS		= 4,
+    ERR_SAVEGAMEVERSION = 5
+};
+
+
 class StaticEventHandler : Object native play version("2.4")
 {
     // static event handlers CAN register other static event handlers.
@@ -103,6 +170,7 @@ class StaticEventHandler : Object native play version("2.4")
     virtual void OnUnregister() {}
 
     // actual handlers are here
+    virtual void OnEngineInitialize() {}
 	virtual void WorldLoaded(WorldEvent e) {}
     virtual void WorldUnloaded(WorldEvent e) {}
     virtual void WorldThingSpawned(WorldEvent e) {}
@@ -121,6 +189,7 @@ class StaticEventHandler : Object native play version("2.4")
     virtual bool IsSaveAllowed(bool quicksave) { return true; }               // @Cockatrice - Returning false from any event manager will prevent a savegame
     virtual void PreSave(int type) {}                                         // @Cockatrice - Called before any type of save. Use this to alter the world before save
     virtual void PostSave(int type) {}                                        // @Cockatrice - Called after any type of save. Use this to alter the world after save (not saving the changes)
+    virtual ui bool HandleError(int type, string message) { return false; }   // @Cockatrice - Handle a fatal error that prevents game from continuing. Return TRUE to signal that it has been displayed to user.
 
     //
     //virtual ui void RenderFrame(RenderEvent e) {}
@@ -142,7 +211,9 @@ class StaticEventHandler : Object native play version("2.4")
     
     //
     virtual ui void ConsoleProcess(ConsoleEvent e) {}
+    virtual ui void InterfaceProcess(ConsoleEvent e) {}
     virtual void NetworkProcess(ConsoleEvent e) {}
+    version("4.12") virtual void NetworkCommandProcess(NetworkCommand cmd) {}
     
     //
     virtual void CheckReplacement(ReplaceEvent e) {}
@@ -174,4 +245,7 @@ class EventHandler : StaticEventHandler native version("2.4")
 {
     clearscope static native StaticEventHandler Find(class<StaticEventHandler> type);
     clearscope static native void SendNetworkEvent(String name, int arg1 = 0, int arg2 = 0, int arg3 = 0);
+    version("4.12") clearscope static native vararg bool SendNetworkCommand(Name cmd, ...);
+    version("4.12") clearscope static native bool SendNetworkBuffer(Name cmd, NetworkBuffer buffer);
+    clearscope static native void SendInterfaceEvent(int playerNum, string name, int arg1 = 0, int arg2 = 0, int arg3 = 0);
 }

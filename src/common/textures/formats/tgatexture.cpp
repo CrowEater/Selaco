@@ -39,6 +39,7 @@
 #include "bitmap.h"
 #include "imagehelpers.h"
 #include "image.h"
+#include "m_swap.h"
 
 
 //==========================================================================
@@ -79,11 +80,11 @@ class FTGATexture : public FImageSource
 public:
 	FTGATexture (int lumpnum, TGAHeader *);
 
-	int CopyPixels(FBitmap *bmp, int conversion) override;
+	int CopyPixels(FBitmap *bmp, int conversion, int frame = 0) override;
 
 protected:
 	void ReadCompressed(FileReader &lump, uint8_t * buffer, int bytesperpixel);
-	TArray<uint8_t> CreatePalettedPixels(int conversion) override;
+	PalettedPixels CreatePalettedPixels(int conversion, int frame = 0) override;
 };
 
 //==========================================================================
@@ -96,7 +97,7 @@ FImageSource *TGAImage_TryCreate(FileReader & file, int lumpnum)
 {
 	TGAHeader hdr;
 
-	if (file.GetLength() < (long)sizeof(hdr)) return NULL;
+	if (file.GetLength() < (ptrdiff_t)sizeof(hdr)) return NULL;
 
 	file.Seek(0, FileReader::SeekSet);
 	file.Read(&hdr, sizeof(hdr));
@@ -177,7 +178,7 @@ void FTGATexture::ReadCompressed(FileReader &lump, uint8_t * buffer, int bytespe
 //
 //==========================================================================
 
-TArray<uint8_t> FTGATexture::CreatePalettedPixels(int conversion)
+PalettedPixels FTGATexture::CreatePalettedPixels(int conversion, int frame)
 {
 	uint8_t PaletteMap[256];
 	auto lump = fileSystem.OpenFileReader (SourceLump);
@@ -185,7 +186,7 @@ TArray<uint8_t> FTGATexture::CreatePalettedPixels(int conversion)
 	uint16_t w;
 	uint8_t r,g,b,a;
 
-	TArray<uint8_t> Pixels(Width*Height, true);
+	PalettedPixels Pixels(Width*Height);
 	lump.Read(&hdr, sizeof(hdr));
 	lump.Seek(hdr.id_len, FileReader::SeekCur);
 
@@ -384,7 +385,7 @@ TArray<uint8_t> FTGATexture::CreatePalettedPixels(int conversion)
 //
 //===========================================================================
 
-int FTGATexture::CopyPixels(FBitmap *bmp, int conversion)
+int FTGATexture::CopyPixels(FBitmap *bmp, int conversion, int frame)
 {
 	PalEntry pe[256];
 	auto lump = fileSystem.OpenFileReader (SourceLump);

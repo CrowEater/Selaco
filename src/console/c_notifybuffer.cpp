@@ -64,7 +64,7 @@ CUSTOM_CVAR(Int, con_scaletext, 0, CVAR_ARCHIVE)		// Scale notify text at high r
 	if (self < 0) self = 0;
 }
 
-enum { NOTIFYFADETIME = 6 };
+constexpr int NOTIFYFADETIME = 6;
 
 CUSTOM_CVAR(Int, con_notifylines, 4, CVAR_GLOBALCONFIG | CVAR_ARCHIVE)
 {
@@ -146,7 +146,7 @@ void FNotifyBuffer::Draw()
 
 			int scale = active_con_scaletext(twod, generic_ui);
 			if (!center)
-				DrawText(twod, font, color, 0, line, notify.Text,
+				DrawText(twod, font, color, 0, line, notify.Text.GetChars(),
 					DTA_VirtualWidth, twod->GetWidth() / scale,
 					DTA_VirtualHeight, twod->GetHeight() / scale,
 					DTA_KeepRatio, true,
@@ -154,7 +154,7 @@ void FNotifyBuffer::Draw()
 			else
 				DrawText(twod, font, color, (twod->GetWidth() -
 					font->StringWidth (notify.Text) * scale) / 2 / scale,
-					line, notify.Text,
+					line, notify.Text.GetChars(),
 					DTA_VirtualWidth, twod->GetWidth() / scale,
 					DTA_VirtualHeight, twod->GetHeight() / scale,
 					DTA_KeepRatio, true,

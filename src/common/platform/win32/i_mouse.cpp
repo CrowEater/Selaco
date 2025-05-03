@@ -131,7 +131,7 @@ enum EMouseMode
 
 // PRIVATE FUNCTION PROTOTYPES ---------------------------------------------
 
-static void SetCursorState(bool visible);
+void SetCursorState(bool visible);
 static FMouse *CreateWin32Mouse();
 static FMouse *CreateDInputMouse();
 static FMouse *CreateRawMouse();
@@ -140,7 +140,6 @@ static void CenterMouse(int x, int y, LONG *centx, LONG *centy);
 // EXTERNAL DATA DECLARATIONS ----------------------------------------------
 
 extern LPDIRECTINPUT8 g_pdi;
-extern LPDIRECTINPUT g_pdi3;
 extern bool GUICapture;
 extern int BlockMouseMove; 
 
@@ -190,18 +189,28 @@ CUSTOM_CVAR (Int, in_mouse, 0, CVAR_ARCHIVE|CVAR_GLOBALCONFIG|CVAR_NOINITCALL)
 //
 //==========================================================================
 
-static void SetCursorState(bool visible)
+static bool mouse_shown = true;
+
+void SetCursorState(bool visible)
 {
 	CursorState = visible || !m_hidepointer;
 	if (GetForegroundWindow() == mainwindow.GetHandle())
 	{
 		if (CursorState)
 		{
-			SetCursor((HCURSOR)(intptr_t)GetClassLongPtr(mainwindow.GetHandle(), GCLP_HCURSOR));
+			if(!mouse_shown)
+			{
+				ShowCursor(true);
+				mouse_shown = true;
+			}
 		}
 		else
 		{
-			SetCursor(NULL);
+			if(mouse_shown)
+			{
+				ShowCursor(false);
+				mouse_shown = false;
+			}
 		}
 	}
 }
@@ -258,7 +267,7 @@ void I_CheckNativeMouse(bool preferNative, bool eventhandlerresult)
 	}
 	else
 	{
-		if ((GetForegroundWindow() != mainwindow.GetHandle()) || preferNative || !use_mouse)
+		if (preferNative || !use_mouse)
 		{
 			want_native = true;
 		}
@@ -277,6 +286,10 @@ void I_CheckNativeMouse(bool preferNative, bool eventhandlerresult)
 	if (!want_native && eventhandlerresult)
 		want_native = true;
 
+	// The application should *never* grab the mouse cursor if its window doesn't have the focus.
+	if (GetForegroundWindow() != mainwindow.GetHandle())
+		want_native = true;
+
 	//Printf ("%d %d %d\n", wantNative, preferNative, NativeMouse);
 
 	if (want_native != NativeMouse)
@@ -288,6 +301,12 @@ void I_CheckNativeMouse(bool preferNative, bool eventhandlerresult)
 			{
 				BlockMouseMove = 3;
 				Mouse->Ungrab();
+
+				if(!mouse_shown)
+				{
+					ShowCursor(true);
+					mouse_shown = true;
+				}
 			}
 			else
 			{
@@ -514,7 +533,7 @@ void FRawMouse::Grab()
 
 		rid.usUsagePage = HID_GENERIC_DESKTOP_PAGE;
 		rid.usUsage = HID_GDP_MOUSE;
-		rid.dwFlags = RIDEV_CAPTUREMOUSE | RIDEV_NOLEGACY;
+		rid.dwFlags = RIDEV_NOLEGACY;
 		rid.hwndTarget = mainwindow.GetHandle();
 		if (RegisterRawInputDevices(&rid, 1, sizeof(rid)))
 		{
@@ -680,17 +699,13 @@ bool FDInputMouse::GetDevice()
 {
 	HRESULT hr;
 
-	if (g_pdi3 != NULL)
-	{ // DirectInput3 interface
-		hr = g_pdi3->CreateDevice(GUID_SysMouse, (LPDIRECTINPUTDEVICE*)&Device, NULL);
-	}
-	else if (g_pdi != NULL)
+	if (g_pdi != NULL)
 	{ // DirectInput8 interface
 		hr = g_pdi->CreateDevice(GUID_SysMouse, &Device, NULL);
 	}
 	else
 	{
-		hr = -1;
+		hr = E_FAIL;
 	}
 	if (FAILED(hr))
 	{
@@ -783,7 +798,7 @@ void FDInputMouse::ProcessInput()
 	event_t ev = { 0 };
 	for (;;)
 	{
-		DWORD cbObjectData = g_pdi3 ? sizeof(DIDEVICEOBJECTDATA_DX3) : sizeof(DIDEVICEOBJECTDATA);
+		DWORD cbObjectData = sizeof(DIDEVICEOBJECTDATA);
 		dwElements = 1;
 		hr = Device->GetDeviceData(cbObjectData, &od, &dwElements, 0);
 		if (hr == DIERR_INPUTLOST || hr == DIERR_NOTACQUIRED)

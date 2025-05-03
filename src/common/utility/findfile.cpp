@@ -37,160 +37,12 @@
 #include "cmdlib.h"
 #include "printf.h"
 #include "configfile.h"
+#include "i_system.h"
+#include "fs_findfile.h"
 
-#ifndef _WIN32
-
-#include <unistd.h>
-#include <fnmatch.h>
+#ifdef __unix__
 #include <sys/stat.h>
-
-#include "cmdlib.h"
-
-static const char *pattern;
-
-static int matchfile(const struct dirent *ent)
-{
-	return fnmatch(pattern, ent->d_name, FNM_NOESCAPE) == 0;
-}
-
-void *I_FindFirst(const char *const filespec, findstate_t *const fileinfo)
-{
-	FString dir;
-
-	const char *const slash = strrchr(filespec, '/');
-
-	if (slash)
-	{
-		pattern = slash + 1;
-		dir = FString(filespec, slash - filespec + 1);
-		fileinfo->path = dir;
-	}
-	else
-	{
-		pattern = filespec;
-		dir = ".";
-	}
-
-	fileinfo->current = 0;
-	fileinfo->count = scandir(dir.GetChars(), &fileinfo->namelist, matchfile, alphasort);
-
-	if (fileinfo->count > 0)
-	{
-		return fileinfo;
-	}
-
-	return (void *)-1;
-}
-
-int I_FindNext(void *const handle, findstate_t *const fileinfo)
-{
-	findstate_t *const state = static_cast<findstate_t *>(handle);
-
-	if (state->current < fileinfo->count)
-	{
-		return ++state->current < fileinfo->count ? 0 : -1;
-	}
-
-	return -1;
-}
-
-int I_FindClose(void *const handle)
-{
-	findstate_t *const state = static_cast<findstate_t *>(handle);
-
-	if (handle != (void *)-1 && state->count > 0)
-	{
-		for (int i = 0; i < state->count; ++i)
-		{
-			free(state->namelist[i]);
-		}
-
-		free(state->namelist);
-		state->namelist = nullptr;
-		state->count = 0;
-	}
-
-	return 0;
-}
-
-int I_FindAttr(findstate_t *const fileinfo)
-{
-	dirent *const ent = fileinfo->namelist[fileinfo->current];
-	const FString path = fileinfo->path + ent->d_name;
-	bool isdir;
-
-	if (DirEntryExists(path, &isdir))
-	{
-		return isdir ? FA_DIREC : 0;
-	}
-
-	return 0;
-}
-
-#else
-
-#include <windows.h>
-#include <direct.h>
-
-//==========================================================================
-//
-// I_FindFirst
-//
-// Start a pattern matching sequence.
-//
-//==========================================================================
-
-
-void *I_FindFirst(const char *filespec, findstate_t *fileinfo)
-{
-	static_assert(sizeof(WIN32_FIND_DATAW) == sizeof(fileinfo->FindData), "FindData size mismatch");
-	auto widespec = WideString(filespec);
-	fileinfo->UTF8Name = "";
-	return FindFirstFileW(widespec.c_str(), (LPWIN32_FIND_DATAW)&fileinfo->FindData);
-}
-
-//==========================================================================
-//
-// I_FindNext
-//
-// Return the next file in a pattern matching sequence.
-//
-//==========================================================================
-
-int I_FindNext(void *handle, findstate_t *fileinfo)
-{
-	fileinfo->UTF8Name = "";
-	return !FindNextFileW((HANDLE)handle, (LPWIN32_FIND_DATAW)&fileinfo->FindData);
-}
-
-//==========================================================================
-//
-// I_FindClose
-//
-// Finish a pattern matching sequence.
-//
-//==========================================================================
-
-int I_FindClose(void *handle)
-{
-	return FindClose((HANDLE)handle);
-}
-
-//==========================================================================
-//
-// I_FindName
-//
-// Returns the name for an entry
-//
-//==========================================================================
-
-const char *I_FindName(findstate_t *fileinfo)
-{
-	if (fileinfo->UTF8Name.IsEmpty()) fileinfo->UTF8Name = fileinfo->FindData.Name;
-	return fileinfo->UTF8Name.GetChars();
-}
-
-#endif
+#endif // __unix__
 
 //==========================================================================
 //
@@ -198,7 +50,7 @@ const char *I_FindName(findstate_t *fileinfo)
 //
 //==========================================================================
 
-bool D_AddFile(TArray<FString>& wadfiles, const char* file, bool check, int position, FConfigFile* config)
+bool D_AddFile(std::vector<std::string>& wadfiles, const char* file, bool check, int position, FConfigFile* config)
 {
 	if (file == nullptr || *file == '\0')
 	{
@@ -238,7 +90,7 @@ bool D_AddFile(TArray<FString>& wadfiles, const char* file, bool check, int posi
 				closedir(d);
 				if (!found)
 				{
-					Printf("Can't find file '%s' in '%s'\n", filename.GetChars(), basepath.GetChars());
+					//Printf("Can't find file '%s' in '%s'\n", filename.GetChars(), basepath.GetChars());
 					return false;
 				}
 			}
@@ -262,10 +114,10 @@ bool D_AddFile(TArray<FString>& wadfiles, const char* file, bool check, int posi
 		file = f;
 	}
 
-	FString f = file;
-	FixPathSeperator(f);
-	if (position == -1) wadfiles.Push(f);
-	else wadfiles.Insert(position, f);
+	std::string f = file;
+	for (auto& c : f) if (c == '\\') c = '/';
+	if (position == -1) wadfiles.push_back(f);
+	else wadfiles.insert(wadfiles.begin() + position, f);
 	return true;
 }
 
@@ -275,7 +127,7 @@ bool D_AddFile(TArray<FString>& wadfiles, const char* file, bool check, int posi
 //
 //==========================================================================
 
-void D_AddWildFile(TArray<FString>& wadfiles, const char* value, const char *extension, FConfigFile* config)
+void D_AddWildFile(std::vector<std::string>& wadfiles, const char* value, const char *extension, FConfigFile* config)
 {
 	if (value == nullptr || *value == '\0')
 	{
@@ -287,45 +139,20 @@ void D_AddWildFile(TArray<FString>& wadfiles, const char* value, const char *ext
 	{
 		D_AddFile(wadfiles, wadfile, true, -1, config);
 	}
-	else
-	{ // Try pattern matching
-		findstate_t findstate;
-		char path[ZPATH_MAX];
-		char* sep;
-		void* handle = I_FindFirst(value, &findstate);
-
-		strcpy(path, value);
-		sep = strrchr(path, '/');
-		if (sep == nullptr)
-		{
-			sep = strrchr(path, '\\');
-#ifdef _WIN32
-			if (sep == nullptr && path[1] == ':')
+	else 
+	{
+		// Try pattern matching
+		FileSys::FileList list;
+		auto path = ExtractFilePath(value);
+		auto name = ExtractFileBase(value, true);
+		if (path.IsEmpty()) path = ".";
+		if (FileSys::ScanDirectory(list, path.GetChars(), name.GetChars(), true))
+		{ 
+			for(auto& entry : list)
 			{
-				sep = path + 1;
+				D_AddFile(wadfiles, entry.FilePath.c_str(), true, -1, config);
 			}
-#endif
 		}
-
-		if (handle != ((void*)-1))
-		{
-			do
-			{
-				if (!(I_FindAttr(&findstate) & FA_DIREC))
-				{
-					if (sep == nullptr)
-					{
-						D_AddFile(wadfiles, I_FindName(&findstate), true, -1, config);
-					}
-					else
-					{
-						strcpy(sep + 1, I_FindName(&findstate));
-						D_AddFile(wadfiles, path, true, -1, config);
-					}
-				}
-			} while (I_FindNext(handle, &findstate) == 0);
-		}
-		I_FindClose(handle);
 	}
 }
 
@@ -337,7 +164,7 @@ void D_AddWildFile(TArray<FString>& wadfiles, const char* value, const char *ext
 //
 //==========================================================================
 
-void D_AddConfigFiles(TArray<FString>& wadfiles, const char* section, const char* extension, FConfigFile *config)
+void D_AddConfigFiles(std::vector<std::string>& wadfiles, const char* section, const char* extension, FConfigFile *config)
 {
 	if (config && config->SetSection(section))
 	{
@@ -351,7 +178,7 @@ void D_AddConfigFiles(TArray<FString>& wadfiles, const char* section, const char
 			{
 				// D_AddWildFile resets config's position, so remember it
 				config->GetPosition(pos);
-				D_AddWildFile(wadfiles, ExpandEnvVars(value), extension, config);
+				D_AddWildFile(wadfiles, ExpandEnvVars(value).GetChars(), extension, config);
 				// Reset config's position to get next wad
 				config->SetPosition(pos);
 			}
@@ -367,43 +194,18 @@ void D_AddConfigFiles(TArray<FString>& wadfiles, const char* section, const char
 //
 //==========================================================================
 
-void D_AddDirectory(TArray<FString>& wadfiles, const char* dir, const char *filespec, FConfigFile* config)
+void D_AddDirectory(std::vector<std::string>& wadfiles, const char* dir, const char *filespec, FConfigFile* config)
 {
-	char curdir[ZPATH_MAX];
-
-	if (getcwd(curdir, ZPATH_MAX))
+	FileSys::FileList list;
+	if (FileSys::ScanDirectory(list, dir, "*.wad", true))
 	{
-		char skindir[ZPATH_MAX];
-		findstate_t findstate;
-		void* handle;
-		size_t stuffstart;
-
-		stuffstart = strlen(dir);
-		memcpy(skindir, dir, stuffstart * sizeof(*dir));
-		skindir[stuffstart] = 0;
-
-		if (skindir[stuffstart - 1] == '/')
+		for (auto& entry : list)
 		{
-			skindir[--stuffstart] = 0;
-		}
-
-		if (!chdir(skindir))
-		{
-			skindir[stuffstart++] = '/';
-			if ((handle = I_FindFirst(filespec, &findstate)) != (void*)-1)
+			if (!entry.isDirectory)
 			{
-				do
-				{
-					if (!(I_FindAttr(&findstate) & FA_DIREC))
-					{
-						strcpy(skindir + stuffstart, I_FindName(&findstate));
-						D_AddFile(wadfiles, skindir, true, -1, config);
-					}
-				} while (I_FindNext(handle, &findstate) == 0);
-				I_FindClose(handle);
+				D_AddFile(wadfiles, entry.FilePath.c_str(), true, -1, config);
 			}
 		}
-		chdir(curdir);
 	}
 }
 
@@ -417,27 +219,27 @@ void D_AddDirectory(TArray<FString>& wadfiles, const char* dir, const char *file
 //
 //==========================================================================
 
+static FString BFSwad; // outside the function to evade C++'s insane rules for constructing static variables inside functions.
+
 const char* BaseFileSearch(const char* file, const char* ext, bool lookfirstinprogdir, FConfigFile* config)
 {
-	static char wad[ZPATH_MAX];
-
 	if (file == nullptr || *file == '\0')
 	{
 		return nullptr;
 	}
 	if (lookfirstinprogdir)
 	{
-		mysnprintf(wad, countof(wad), "%s%s%s", progdir.GetChars(), progdir.Back() == '/' ? "" : "/", file);
-		if (DirEntryExists(wad))
+		BFSwad.Format("%s%s%s", progdir.GetChars(), progdir.Back() == '/' ? "" : "/", file);
+		if (DirEntryExists(BFSwad.GetChars()))
 		{
-			return wad;
+			return BFSwad.GetChars();
 		}
 	}
 
 	if (DirEntryExists(file))
 	{
-		mysnprintf(wad, countof(wad), "%s", file);
-		return wad;
+		BFSwad.Format("%s", file);
+		return BFSwad.GetChars();
 	}
 
 	if (config != nullptr && config->SetSection("FileSearch.Directories"))
@@ -454,10 +256,10 @@ const char* BaseFileSearch(const char* file, const char* ext, bool lookfirstinpr
 				dir = NicePath(value);
 				if (dir.IsNotEmpty())
 				{
-					mysnprintf(wad, countof(wad), "%s%s%s", dir.GetChars(), dir.Back() == '/' ? "" : "/", file);
-					if (DirEntryExists(wad))
+					BFSwad.Format("%s%s%s", dir.GetChars(), dir.Back() == '/' ? "" : "/", file);
+					if (DirEntryExists(BFSwad.GetChars()))
 					{
-						return wad;
+						return BFSwad.GetChars();
 					}
 				}
 			}
@@ -469,7 +271,7 @@ const char* BaseFileSearch(const char* file, const char* ext, bool lookfirstinpr
 	{
 		FString tmp = file;
 		DefaultExtension(tmp, ext);
-		return BaseFileSearch(tmp, nullptr, lookfirstinprogdir, config);
+		return BaseFileSearch(tmp.GetChars(), nullptr, lookfirstinprogdir, config);
 	}
 	return nullptr;
 }

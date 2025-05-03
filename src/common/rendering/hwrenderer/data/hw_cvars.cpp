@@ -53,6 +53,17 @@ CUSTOM_CVAR(Int, gl_fogmode, 2, CVAR_ARCHIVE | CVAR_NOINITCALL)
 // @Cockatrice - Toggle background texture fetching when supported
 CVAR(Bool, gl_texture_thread, true, CVAR_GLOBALCONFIG | CVAR_ARCHIVE)
 
+// @Cockatrice - Enable upload inside the texture thread (when available), or force upload to happen in main thread (debugging, old hardware etc)
+CVAR(Bool, gl_texture_thread_upload, true, CVAR_GLOBALCONFIG | CVAR_ARCHIVE)
+
+// @Cockatrice - Controls how many background loaded textures are re-integrated every tick
+// Especially on cards that have to create mipmaps in the main thread, this number can't be too high
+// or we get choppy when too many things are loading at once
+// Keeping this number too low will result in visible sprite popping
+CUSTOM_CVAR(Int, gl_background_flush_count, 100, CVAR_GLOBALCONFIG | CVAR_ARCHIVE) {
+	if (self < 25) self = 25;
+}
+
 // OpenGL stuff moved here
 // GL related CVARs
 CVAR(Bool, gl_portals, true, 0)
@@ -117,7 +128,7 @@ CVAR(Int, gl_satformula, 1, CVAR_ARCHIVE|CVAR_GLOBALCONFIG);
 // Texture CVARs
 //
 //==========================================================================
-CUSTOM_CVARD(Float, gl_texture_filter_anisotropic, 8, CVAR_ARCHIVE | CVAR_GLOBALCONFIG | CVAR_NOINITCALL, "changes the OpenGL texture anisotropy setting")
+CUSTOM_CVARD(Float, gl_texture_filter_anisotropic, 8.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG | CVAR_NOINITCALL, "changes the OpenGL texture anisotropy setting")
 {
 	screen->SetTextureFilterMode();
 }

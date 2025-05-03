@@ -94,8 +94,8 @@ namespace swrenderer
 			skyiscale = float(r_Yaspect / freelookviewheight);
 			skyscale = freelookviewheight / r_Yaspect;
 
-			skyiscale *= float(thread->Viewport->viewpoint.FieldOfView.Degrees / 90.);
-			skyscale *= float(90. / thread->Viewport->viewpoint.FieldOfView.Degrees);
+			skyiscale *= float(thread->Viewport->viewpoint.FieldOfView.Degrees() / 90.);
+			skyscale *= float(90. / thread->Viewport->viewpoint.FieldOfView.Degrees());
 		}
 
 		if (Level->skystretch)
@@ -186,7 +186,7 @@ namespace swrenderer
 				// to allow sky rotation as well as careful positioning.
 				// However, the offset is scaled very small, so that it
 				// allows a long-period of sky rotation.
-				skyangle += FLOAT2FIXED(s->GetTextureXOffset(pos));
+				skyangle += xs_Fix<16>::ToFix(s->GetTextureXOffset(pos));
 
 				// Vertical offset allows careful sky positioning.
 				skymid = s->GetTextureYOffset(pos) - 28.0;
@@ -267,8 +267,6 @@ namespace swrenderer
 		else
 			drawerargs.DrawDoubleSkyColumn(Thread);
 
-		if (r_modelscene)
-			drawerargs.DrawDepthSkyColumn(Thread, 1.0f / 65536.0f);
 	}
 
 	void RenderSkyPlane::DrawSkyColumn(int start_x, int y1, int y2)

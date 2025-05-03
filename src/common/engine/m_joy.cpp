@@ -35,7 +35,8 @@
 #include <math.h>
 #include "vectors.h"
 #include "m_joy.h"
-#include "gameconfigfile.h"
+#include "configfile.h"
+#include "i_interface.h"
 #include "d_eventbase.h"
 #include "cmdlib.h"
 #include "printf.h"
@@ -61,15 +62,16 @@ EXTERN_CVAR(Bool, joy_xinput)
 CUSTOM_CVARD(Bool, use_joystick, true, CVAR_ARCHIVE|CVAR_GLOBALCONFIG|CVAR_NOINITCALL, "enables input from the joystick if it is present") 
 {
 #ifdef _WIN32
-	joy_ps2raw.Callback();
-	joy_dinput.Callback();
-	joy_xinput.Callback();
+	joy_ps2raw->Callback();
+	joy_dinput->Callback();
+	joy_xinput->Callback();
 #endif
 }
 
 CVAR(Bool, joy_feedback, true, CVAR_ARCHIVE | CVAR_GLOBALCONFIG);
 CVAR(Float, joy_feedback_scale, 1.0f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG);
 CVAR(Float, joy_menu_deadzone, 0.05f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG);
+CVAR(Bool, joy_invert_look, false, CVAR_ARCHIVE | CVAR_GLOBALCONFIG);
 
 // PRIVATE DATA DEFINITIONS ------------------------------------------------
 
@@ -96,11 +98,12 @@ IJoystickConfig::~IJoystickConfig()
 //
 //==========================================================================
 
-static bool M_SetJoystickConfigSection(IJoystickConfig *joy, bool create)
+static bool M_SetJoystickConfigSection(IJoystickConfig *joy, bool create, FConfigFile* GameConfig)
 {
 	FString id = "Joy:";
 	id += joy->GetIdentifier();
-	return GameConfig->SetSection(id, create);
+	if (!GameConfig) return false;
+	return GameConfig->SetSection(id.GetChars(), create);
 }
 
 //==========================================================================
@@ -111,21 +114,41 @@ static bool M_SetJoystickConfigSection(IJoystickConfig *joy, bool create)
 
 bool M_LoadJoystickConfig(IJoystickConfig *joy)
 {
+	FConfigFile* GameConfig = sysCallbacks.GetConfig ? sysCallbacks.GetConfig() : nullptr;
 	char key[32];
 	const char *value;
 	int axislen;
 	int numaxes;
 
 	joy->SetDefaultConfig();
-	if (!M_SetJoystickConfigSection(joy, false))
+	if (!M_SetJoystickConfigSection(joy, false, GameConfig))
 	{
 		return false;
 	}
+
+	assert(GameConfig);
+
+	value = GameConfig->GetValueForKey("Enabled");
+	if (value)
+	{
+		joy->SetEnabled((bool)atoi(value));
+	}
+
+	if(joy->AllowsEnabledInBackground())
+	{
+		value = GameConfig->GetValueForKey("EnabledInBackground");
+		if (value)
+		{
+			joy->SetEnabledInBackground((bool)atoi(value));
+		}
+	}
+
 	value = GameConfig->GetValueForKey("Sensitivity");
-	if (value != NULL)
+	if (value)
 	{
 		joy->SetSensitivity((float)atof(value));
 	}
+
 	numaxes = joy->GetNumAxes();
 	for (int i = 0; i < numaxes; ++i)
 	{
@@ -133,14 +156,14 @@ bool M_LoadJoystickConfig(IJoystickConfig *joy)
 
 		mysnprintf(key + axislen, countof(key) - axislen, "deadzone");
 		value = GameConfig->GetValueForKey(key);
-		if (value != NULL)
+		if (value)
 		{
 			joy->SetAxisDeadZone(i, (float)atof(value));
 		}
 
 		mysnprintf(key + axislen, countof(key) - axislen, "scale");
 		value = GameConfig->GetValueForKey(key);
-		if (value != NULL)
+		if (value)
 		{
 			joy->SetAxisScale(i, (float)atof(value));
 		}
@@ -154,7 +177,7 @@ bool M_LoadJoystickConfig(IJoystickConfig *joy)
 
 		mysnprintf(key + axislen, countof(key) - axislen, "map");
 		value = GameConfig->GetValueForKey(key);
-		if (value != NULL)
+		if (value)
 		{
 			EJoyAxis gameaxis = (EJoyAxis)atoi(value);
 			if (gameaxis < JOYAXIS_None || gameaxis >= NUM_JOYAXIS)
@@ -177,12 +200,23 @@ bool M_LoadJoystickConfig(IJoystickConfig *joy)
 
 void M_SaveJoystickConfig(IJoystickConfig *joy)
 {
+	FConfigFile* GameConfig = sysCallbacks.GetConfig ? sysCallbacks.GetConfig() : nullptr;
 	char key[32], value[32];
 	int axislen, numaxes;
 
-	if (M_SetJoystickConfigSection(joy, true))
+	if (GameConfig != NULL && M_SetJoystickConfigSection(joy, true, GameConfig))
 	{
 		GameConfig->ClearCurrentSection();
+		if (!joy->GetEnabled())
+		{
+			GameConfig->SetValueForKey("Enabled", "0");
+		}
+
+		if (!joy->AllowsEnabledInBackground() && joy->GetEnabledInBackground())
+		{
+			GameConfig->SetValueForKey("EnabledInBackground", "1");
+		}
+		
 		if (!joy->IsSensitivityDefault())
 		{
 			mysnprintf(value, countof(value), "%g", joy->GetSensitivity());

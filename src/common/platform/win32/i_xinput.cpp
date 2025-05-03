@@ -80,6 +80,7 @@
 
 EXTERN_CVAR(Bool, joy_feedback)
 EXTERN_CVAR(Float, joy_feedback_scale)
+EXTERN_CVAR(Bool, joy_invert_look)
 
 CUSTOM_CVAR(Int, joy_xinput_queuesize, 5, CVAR_ARCHIVE | CVAR_GLOBALCONFIG) {
 	if (self > 10) self = 10;
@@ -95,6 +96,8 @@ CUSTOM_CVAR(Int, joy_xinput_squarelook, 1, CVAR_ARCHIVE | CVAR_GLOBALCONFIG) {
 	if (self > 2) self = 2;
 	if (self < 0) self = 0;
 }
+
+extern bool AppActive;
 
 // TYPES -------------------------------------------------------------------
 
@@ -141,6 +144,13 @@ public:
 	bool IsAxisScaleDefault(int axis);
 	bool IsAxisAccelerationDefault(int axis) override;
 
+	bool GetEnabled();
+	void SetEnabled(bool enabled);
+
+	bool AllowsEnabledInBackground() { return true; }
+	bool GetEnabledInBackground() { return EnabledInBackground; }
+	void SetEnabledInBackground(bool enabled) { EnabledInBackground = enabled; }
+
 	void SetDefaultConfig();
 	FString GetIdentifier();
 
@@ -186,6 +196,8 @@ protected:
 	DWORD LastPacketNumber;
 	int LastButtons;
 	bool Connected;
+	bool Enabled;
+	bool EnabledInBackground;
 
 	void Attached();
 	void Detached();
@@ -271,6 +283,7 @@ FXInputController::FXInputController(int index)
 {
 	Index = index;
 	Connected = false;
+	Enabled = true;
 	M_LoadJoystickConfig(this);
 }
 
@@ -404,7 +417,7 @@ void FXInputController::ProcessInput()
 	}
 	
 
-	if (state.dwPacketNumber == LastPacketNumber)
+	if (state.dwPacketNumber == LastPacketNumber || !Enabled)
 	{ // Nothing has changed since last time.
 		return;
 	}
@@ -603,7 +616,13 @@ void FXInputController::AddAxes(float axes[NUM_JOYAXIS])
 			axes[Axes[i].GameAxis] -= float(Axes[i].Value * Axes[i].Multiplier);
 		}
 		else {
-			axes[Axes[i].GameAxis] -= float(Axes[i].Value * Multiplier * Axes[i].Multiplier);
+			float val = float(Axes[i].Value * Multiplier * Axes[i].Multiplier);
+			
+			// @Cockatrice - Add global invert multiplier for look only
+			if (joy_invert_look && Axes[i].GameAxis == JOYAXIS_Pitch) 
+				val *= -1.0f;	
+
+			axes[Axes[i].GameAxis] -= val;
 		}
 	}
 }
@@ -889,6 +908,31 @@ bool FXInputController::IsAxisAccelerationDefault(int axis)
 	return true;
 }
 
+
+//===========================================================================
+//
+
+// FXInputController :: GetEnabled
+//
+//===========================================================================
+
+bool FXInputController::GetEnabled()
+{
+	return Enabled;
+}
+
+//===========================================================================
+//
+// FXInputController :: SetEnabled
+//
+//===========================================================================
+
+void FXInputController::SetEnabled(bool enabled)
+{
+	Enabled = enabled;
+}
+
+
 //===========================================================================
 //
 // FXInputController :: IsAxisMapDefault
@@ -987,7 +1031,10 @@ void FXInputManager::ProcessInput()
 {
 	for (int i = 0; i < XUSER_MAX_COUNT; ++i)
 	{
-		Devices[i]->ProcessInput();
+		if(AppActive || Devices[i]->GetEnabledInBackground())
+		{
+			Devices[i]->ProcessInput();
+		}
 	}
 }
 

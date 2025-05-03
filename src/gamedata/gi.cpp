@@ -52,6 +52,8 @@ DEFINE_FIELD_X(GameInfoStruct, gameinfo_t, backpacktype)
 DEFINE_FIELD_X(GameInfoStruct, gameinfo_t, Armor2Percent)
 DEFINE_FIELD_X(GameInfoStruct, gameinfo_t, ArmorIcon1)
 DEFINE_FIELD_X(GameInfoStruct, gameinfo_t, ArmorIcon2)
+DEFINE_FIELD_X(GameInfoStruct, gameinfo_t, BasicArmorClass)
+DEFINE_FIELD_X(GameInfoStruct, gameinfo_t, HexenArmorClass)
 DEFINE_FIELD_X(GameInfoStruct, gameinfo_t, gametype)
 DEFINE_FIELD_X(GameInfoStruct, gameinfo_t, norandomplayerclass)
 DEFINE_FIELD_X(GameInfoStruct, gameinfo_t, infoPages)
@@ -156,7 +158,7 @@ const char* GameInfoBorders[] =
 			{ \
 				sc.ScriptError("Value for '%s' can not be longer than %d characters.", #key, length); \
 			} \
-			gameinfo.key[gameinfo.key.Reserve(1)] = FSoundID(sc.String); \
+			gameinfo.key[gameinfo.key.Reserve(1)] = S_FindSound(sc.String); \
 		} \
 		while (sc.CheckToken(',')); \
 	}
@@ -212,10 +214,10 @@ const char* GameInfoBorders[] =
 	{ \
 		sc.MustGetToken(TK_StringConst); \
 		FString color = sc.String; \
-		FString colorName = V_GetColorStringByName(color); \
+		FString colorName = V_GetColorStringByName(color.GetChars()); \
 		if(!colorName.IsEmpty()) \
 			color = colorName; \
-		gameinfo.key = V_GetColorFromString(color); \
+		gameinfo.key = V_GetColorFromString(color.GetChars()); \
 	}
 
 #define GAMEINFOKEY_BOOL(key, variable) \
@@ -392,6 +394,8 @@ void FMapInfoParser::ParseGameInfo()
 			GAMEINFOKEY_SOUNDARRAY(PrecachedSounds, "precachesounds", 0, false)
 			GAMEINFOKEY_STRINGARRAY(EventHandlers, "addeventhandlers", 0, false)
 			GAMEINFOKEY_STRINGARRAY(EventHandlers, "eventhandlers", 0, false)
+			GAMEINFOKEY_STRING(BasicArmorClass, "BasicArmorClass")
+			GAMEINFOKEY_STRING(HexenArmorClass, "HexenArmorClass")
 			GAMEINFOKEY_STRING(PauseSign, "pausesign")
 			GAMEINFOKEY_STRING(quitSound, "quitSound")
 			GAMEINFOKEY_STRING(BorderFlat, "borderFlat")
@@ -470,7 +474,7 @@ void FMapInfoParser::ParseGameInfo()
 			SkipToNext();
 		}
 	}
-	turbo.Callback();
+	turbo->Callback();
 }
 
 const char *gameinfo_t::GetFinalePage(unsigned int num) const

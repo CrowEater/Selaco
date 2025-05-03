@@ -161,9 +161,10 @@ FVoxel *R_LoadKVX(int lumpnum)
 	int mip, maxmipsize;
 	int i, j, n;
 
-	FileData lump = fileSystem.ReadFile(lumpnum);	// FileData adds an extra 0 byte to the end.
-	uint8_t *rawvoxel = (uint8_t *)lump.GetMem();
-	int voxelsize = (int)(lump.GetSize()-1);
+	auto lump =  fileSystem.ReadFile(lumpnum);	// FileData adds an extra 0 byte to the end.
+	auto rawvoxel = lump.bytes();
+	int voxelsize = (int)(lump.size());
+	if (voxelsize <= 768 + 4) return nullptr;
 
 	// Oh, KVX, why couldn't you have a proper header? We'll just go through
 	// and collect each MIP level, doing lots of range checking, and if the
@@ -314,10 +315,11 @@ FVoxelDef *R_LoadVoxelDef(int lumpnum, int spin)
 	else
 	{
 		FVoxelDef *voxdef = new FVoxelDef;
+		*voxdef = {};
 		voxdef->Voxel = vox;
 		voxdef->Scale = 1.;
 		voxdef->DroppedSpin = voxdef->PlacedSpin = spin;
-		voxdef->AngleOffset = 90.;
+		voxdef->AngleOffset = DAngle::fromDeg(90.);
 
 		Voxels.Push(vox);
 		VoxelDefs.Push(voxdef);

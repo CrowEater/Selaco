@@ -7,8 +7,9 @@
 # define ATTRIBUTE(attrlist)
 #endif
 
-// This header collects all things printf, so that this doesn't need to pull in other, far more dirty headers, just for outputting some text.
+#include "stb_sprintf.h"
 
+// This header collects all things printf, so that this doesn't need to pull in other, far more dirty headers, just for outputting some text.
 extern "C" int mysnprintf(char* buffer, size_t count, const char* format, ...) ATTRIBUTE((format(printf, 3, 4)));
 extern "C" int myvsnprintf(char* buffer, size_t count, const char* format, va_list argptr) ATTRIBUTE((format(printf, 3, 0)));
 
@@ -75,8 +76,8 @@ enum
 };
 
 
-void I_Error(const char *fmt, ...) ATTRIBUTE((format(printf,1,2)));
-void I_FatalError(const char* fmt, ...) ATTRIBUTE((format(printf, 1, 2)));
+[[noreturn]] void I_Error(const char *fmt, ...) ATTRIBUTE((format(printf,1,2)));
+[[noreturn]] void I_FatalError(const char* fmt, ...) ATTRIBUTE((format(printf, 1, 2)));
 
 // This really could need some cleanup - the main problem is that it'd create
 // lots of potential for merge conflicts.
@@ -88,7 +89,7 @@ int Printf (const char *format, ...) ATTRIBUTE((format(printf,1,2)));
 int DPrintf (int level, const char *format, ...) ATTRIBUTE((format(printf,2,3)));
 
 void I_DebugPrint(const char* cp);
-void debugprintf(const char* f, ...);	// Prints to the debugger's log.
+void I_DebugPrintf(const char* fmt, ...);	// Prints to the debugger's log.
 
 // flag to silence non-error output
 extern bool batchrun;

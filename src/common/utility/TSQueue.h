@@ -338,7 +338,7 @@ public:
 
 	void stop() {
 		// Kill and finish the thread
-		if (mThread.joinable()) {
+		if (mThread.get_id() != std::thread::id() && mThread.joinable()) {
 			mActive.store(false);
 			mWake.notify_all();
 			mThread.join();
@@ -405,7 +405,7 @@ protected:
 
 			// Process the queue
 			while (true) {
-				if (mInputQ->size() > 0 || mInputQSecondary->size() > 0) {
+				if (mInputQ->size() > 0 || (mInputQSecondary != nullptr && mInputQSecondary->size() > 0)) {
 					mRunning.store(true);
 
 					cycle_t lTime;

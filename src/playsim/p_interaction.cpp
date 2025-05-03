@@ -61,6 +61,7 @@
 #include "g_levellocals.h"
 #include "events.h"
 #include "actorinlines.h"
+#include "d_main.h"
 
 static FRandom pr_botrespawn ("BotRespawn");
 static FRandom pr_killmobj ("ActorDie");
@@ -188,7 +189,7 @@ void PronounMessage (const char *from, char *to, int pronoun, const char *victim
 //
 void ClientObituary (AActor *self, AActor *inflictor, AActor *attacker, int dmgflags, FName MeansOfDeath)
 {
-	FString ret;
+	FString ret, lookup;
 	char gendermessage[1024];
 
 	// No obituaries for non-players, voodoo dolls or when not wanted
@@ -218,7 +219,7 @@ void ClientObituary (AActor *self, AActor *inflictor, AActor *attacker, int dmgf
 	}
 
 	FString obit = DamageTypeDefinition::GetObituary(mod);
-	if (attacker == nullptr && obit.IsNotEmpty()) messagename = obit;
+	if (attacker == nullptr && obit.IsNotEmpty()) messagename = obit.GetChars();
 	else
 	{
 		switch (mod.GetIndex())
@@ -239,20 +240,30 @@ void ClientObituary (AActor *self, AActor *inflictor, AActor *attacker, int dmgf
 		messagename = "$OB_VOODOO";
 	}
 
-	if (attacker != NULL && message == NULL)
+	if (attacker != nullptr && message == nullptr)
 	{
 		if (attacker == self)
 		{
 			message = "$OB_KILLEDSELF";
 		}
-		else 
+		else
 		{
-			IFVIRTUALPTR(attacker, AActor, GetObituary)
+			lookup.Format("$Obituary_%s_%s", attacker->GetClass()->TypeName.GetChars(), mod.GetChars());
+			if (GStrings.CheckString(lookup.GetChars() + 1)) message = lookup.GetChars();
+			else
 			{
-				VMValue params[] = { attacker, self, inflictor, mod.GetIndex(), !!(dmgflags & DMG_PLAYERATTACK) };
-				VMReturn rett(&ret);
-				VMCall(func, params, countof(params), &rett, 1);
-				if (ret.IsNotEmpty()) message = ret;
+				lookup.Format("$Obituary_%s", attacker->GetClass()->TypeName.GetChars());
+				if (GStrings.CheckString(lookup.GetChars() + 1)) message = lookup.GetChars();
+				else
+				{
+					IFVIRTUALPTR(attacker, AActor, GetObituary)
+					{
+						VMValue params[] = { attacker, self, inflictor, mod.GetIndex(), !!(dmgflags & DMG_PLAYERATTACK) };
+						VMReturn rett(&ret);
+						VMCall(func, params, countof(params), &rett, 1);
+						if (ret.IsNotEmpty()) message = ret.GetChars();
+					}
+				}
 			}
 		}
 	}
@@ -262,7 +273,7 @@ void ClientObituary (AActor *self, AActor *inflictor, AActor *attacker, int dmgf
 
 	if (message != NULL && message[0] == '$') 
 	{
-		message = GStrings.GetString(message+1, nullptr, self->player->userinfo.GetGender());
+		message = GStrings.CheckString(message+1, nullptr, self->player->userinfo.GetGender());
 	}
 
 	if (message == NULL)
@@ -272,16 +283,16 @@ void ClientObituary (AActor *self, AActor *inflictor, AActor *attacker, int dmgf
 		if (mod == NAME_Melee)
 		{
 			FStringf ob("DEFHITOB_%s", cls);
-			message = GStrings.GetString(ob, nullptr, self->player->userinfo.GetGender());
+			message = GStrings.CheckString(ob.GetChars(), nullptr, self->player->userinfo.GetGender());
 		}
 		if (message == nullptr)
 		{
 			FStringf ob("DEFOB_%s", cls);
-			message = GStrings.GetString(ob, nullptr, self->player->userinfo.GetGender());
+			message = GStrings.CheckString(ob.GetChars(), nullptr, self->player->userinfo.GetGender());
 		}
 		if (message == nullptr)
 		{
-			message = GStrings.GetString("OB_DEFAULT", nullptr, self->player->userinfo.GetGender());
+			message = GStrings.CheckString("OB_DEFAULT", nullptr, self->player->userinfo.GetGender());
 		}
 	}
 
@@ -302,36 +313,54 @@ EXTERN_CVAR (Int, fraglimit)
 
 void AActor::Die (AActor *source, AActor *inflictor, int dmgflags, FName MeansOfDeath)
 {
-	// Handle possible unmorph on death
 	bool wasgibbed = (health < GetGibHealth());
 
+	// Check to see if unmorph Actors need to be killed as well. Originally this was always
+	// called but that puts an unnecessary burden on the modder to determine whether it's
+	// a valid call or not.
+	if (alternative != nullptr && !(flags & MF_UNMORPHED))
 	{
 		IFVIRTUAL(AActor, MorphedDeath)
 		{
-			AActor *realthis = NULL;
-			int realstyle = 0;
-			int realhealth = 0;
+			// Return values are no longer used to ensure things stay properly managed.
+			AActor* const realMo = alternative;
+			int morphStyle = 0;
 
 			VMValue params[] = { this };
-			VMReturn returns[3];
-			returns[0].PointerAt((void**)&realthis);
-			returns[1].IntAt(&realstyle);
-			returns[2].IntAt(&realhealth);
-			VMCall(func, params, 1, returns, 3);
 
-			if (realthis && !(realstyle & MORPH_UNDOBYDEATHSAVES))
+			{
+				IFVM(Actor, GetMorphStyle)
+				{
+					VMReturn ret[] = { &morphStyle };
+					VMCall(func, params, 1, ret, 1);
+				}
+			}
+
+			VMCall(func, params, 1, nullptr, 0);
+
+			// Kill the dummy Actor if it didn't unmorph, otherwise checking the morph flags. Player pawns need
+			// to stay, otherwise they won't respawn correctly.
+			if (realMo != nullptr && !(realMo->flags6 & MF6_KILLED)
+				&& ((alternative != nullptr && player == nullptr) || (alternative == nullptr && !(morphStyle & MORPH_UNDOBYDEATHSAVES))))
 			{
 				if (wasgibbed)
 				{
-					int realgibhealth = realthis->GetGibHealth();
-					if (realthis->health >= realgibhealth)
-					{
-						realthis->health = realgibhealth - 1; // if morphed was gibbed, so must original be (where allowed)l
-					}
+					const int realGibHealth = realMo->GetGibHealth();
+					if (realMo->health >= realGibHealth)
+						realMo->health = realGibHealth - 1; // If morphed was gibbed, so must original be (where allowed).
 				}
-				realthis->CallDie(source, inflictor, dmgflags, MeansOfDeath);
-			}
+				else if (realMo->health > 0)
+				{
+					realMo->health = 0;
+				}
 
+				// Pass appropriate damage information along when it's confirmed to die.
+				realMo->DamageTypeReceived = DamageTypeReceived;
+				realMo->DamageType = DamageType;
+				realMo->special1 = special1;
+
+				realMo->CallDie(source, inflictor, dmgflags, MeansOfDeath);
+			}
 		}
 	}
 
@@ -425,7 +454,7 @@ void AActor::Die (AActor *source, AActor *inflictor, int dmgflags, FName MeansOf
 				player->fragcount--;
 				if (deathmatch && player->spreecount >= 5 && cl_showsprees)
 				{
-					PronounMessage (GStrings("SPREEKILLSELF"), buff,
+					PronounMessage (GStrings.GetString("SPREEKILLSELF"), buff,
 						player->userinfo.GetGender(), player->userinfo.GetName(),
 						player->userinfo.GetName());
 					StatusBar->AttachMessage (Create<DHUDMessageFadeOut>(nullptr, buff,
@@ -447,7 +476,7 @@ void AActor::Die (AActor *source, AActor *inflictor, int dmgflags, FName MeansOf
 					++source->player->spreecount;
 				}
 
-				if (source->player->morphTics)
+				if (source->alternative != nullptr)
 				{ // Make a super chicken
 					source->GiveInventoryType (PClass::FindActor(NAME_PowerWeaponLevel2));
 				}
@@ -460,19 +489,19 @@ void AActor::Die (AActor *source, AActor *inflictor, int dmgflags, FName MeansOf
 					switch (source->player->spreecount)
 					{
 					case 5:
-						spreemsg = GStrings("SPREE5");
+						spreemsg = GStrings.GetString("SPREE5");
 						break;
 					case 10:
-						spreemsg = GStrings("SPREE10");
+						spreemsg = GStrings.GetString("SPREE10");
 						break;
 					case 15:
-						spreemsg = GStrings("SPREE15");
+						spreemsg = GStrings.GetString("SPREE15");
 						break;
 					case 20:
-						spreemsg = GStrings("SPREE20");
+						spreemsg = GStrings.GetString("SPREE20");
 						break;
 					case 25:
-						spreemsg = GStrings("SPREE25");
+						spreemsg = GStrings.GetString("SPREE25");
 						break;
 					default:
 						spreemsg = NULL;
@@ -483,7 +512,7 @@ void AActor::Die (AActor *source, AActor *inflictor, int dmgflags, FName MeansOf
 					{
 						if (!AnnounceSpreeLoss (this))
 						{
-							PronounMessage (GStrings("SPREEOVER"), buff, player->userinfo.GetGender(),
+							PronounMessage (GStrings.GetString("SPREEOVER"), buff, player->userinfo.GetGender(),
 								player->userinfo.GetName(), source->player->userinfo.GetName());
 							StatusBar->AttachMessage (Create<DHUDMessageFadeOut> (nullptr, buff,
 								1.5f, 0.2f, 0, 0, CR_WHITE, 3.f, 0.5f), MAKE_ID('K','S','P','R'));
@@ -525,16 +554,16 @@ void AActor::Die (AActor *source, AActor *inflictor, int dmgflags, FName MeansOf
 							multimsg = NULL;
 							break;
 						case 2:
-							multimsg = GStrings("MULTI2");
+							multimsg = GStrings.GetString("MULTI2");
 							break;
 						case 3:
-							multimsg = GStrings("MULTI3");
+							multimsg = GStrings.GetString("MULTI3");
 							break;
 						case 4:
-							multimsg = GStrings("MULTI4");
+							multimsg = GStrings.GetString("MULTI4");
 							break;
 						default:
-							multimsg = GStrings("MULTI5");
+							multimsg = GStrings.GetString("MULTI5");
 							break;
 						}
 						if (multimsg != NULL)
@@ -558,7 +587,7 @@ void AActor::Die (AActor *source, AActor *inflictor, int dmgflags, FName MeansOf
 			if (deathmatch && fraglimit &&
 				fraglimit <= D_GetFragCount (source->player))
 			{
-				Printf ("%s\n", GStrings("TXT_FRAGLIMIT"));
+				Printf ("%s\n", GStrings.GetString("TXT_FRAGLIMIT"));
 				Level->ExitLevel (0, false);
 			}
 		}
@@ -1243,7 +1272,7 @@ static int DamageMobj (AActor *target, AActor *inflictor, AActor *source, int da
 	{
 		IFVIRTUALPTR(target, AActor, ApplyKickback)
 		{
-			VMValue params[] = { target, inflictor, source, damage, angle.Degrees, mod.GetIndex(), flags };
+			VMValue params[] = { target, inflictor, source, damage, angle.Degrees(), mod.GetIndex(), flags };
 			VMCall(func, params, countof(params), nullptr, 0);
 		}
 	}
@@ -1318,19 +1347,30 @@ static int DamageMobj (AActor *target, AActor *inflictor, AActor *source, int da
 			
 			if (damage >= player->health && !telefragDamage
 				&& (G_SkillProperty(SKILLP_AutoUseHealth) || deathmatch)
-				&& !player->morphTics)
+				&& target->alternative == nullptr)
 			{ // Try to use some inventory health
 				P_AutoUseHealth (player, damage - player->health + 1);
 			}
 		}
 
+		bool compat_voodoo_zombie = target->Level->i_compatflags2 & COMPATF2_VOODOO_ZOMBIES;
+
 		player->health -= damage;		// mirror mobj health here for Dave
-		// [RH] Make voodoo dolls and real players record the same health
-		target->health = player->mo->health -= damage;
+		if(compat_voodoo_zombie)
+		{ // [RL0] To allow voodoo zombies, don't set the voodoo doll to the player mobj's health and don't change the player mobj's health on damage
+			target->health -= damage;
+		}
+		else
+		{ // [RH] Make voodoo dolls and real players record the same health
+			target->health = player->mo->health -= damage;
+		}
 		if (player->health < 50 && !deathmatch && !(flags & DMG_FORCED))
 		{
 			P_AutoUseStrifeHealth (player);
-			player->mo->health = player->health;
+			if(!compat_voodoo_zombie)
+			{ // [RL0] To match vanilla behavior, don't set the player mo's health to 0 if voodoo zombies compat is enabled
+				player->mo->health = player->health;
+			}
 		}
 		if (player->health <= 0)
 		{
@@ -1441,7 +1481,7 @@ static int DamageMobj (AActor *target, AActor *inflictor, AActor *source, int da
 			// check for special fire damage or ice damage deaths
 			if (mod == NAME_Fire)
 			{
-				if (player && !player->morphTics)
+				if (player && target->alternative == nullptr)
 				{ // Check for flame death
 					if (!inflictor ||
 						((target->health > -50) && (damage > 25)) ||
@@ -1504,7 +1544,7 @@ DEFINE_ACTION_FUNCTION(AActor, DamageMobj)
 	PARAM_INT(damage);
 	PARAM_NAME(mod);
 	PARAM_INT(flags);
-	PARAM_FLOAT(angle);
+	PARAM_ANGLE(angle);
 	ACTION_RETURN_INT(DoDamageMobj(self, inflictor, source, damage, mod, flags, angle));
 }
 
@@ -1512,7 +1552,7 @@ int P_DamageMobj(AActor *target, AActor *inflictor, AActor *source, int damage, 
 {
 	IFVIRTUALPTR(target, AActor, DamageMobj)
 	{
-		VMValue params[7] = { target, inflictor, source, damage, mod.GetIndex(), flags, angle.Degrees };
+		VMValue params[7] = { target, inflictor, source, damage, mod.GetIndex(), flags, angle.Degrees() };
 		VMReturn ret;
 		int retval;
 		ret.IntAt(&retval);
@@ -1592,6 +1632,9 @@ DEFINE_ACTION_FUNCTION(AActor, PoisonMobj)
 
 bool AActor::OkayToSwitchTarget(AActor *other)
 {
+	if (other == nullptr)
+		return false;
+
 	if (other == this)
 		return false;		// [RH] Don't hate self (can happen when shooting barrels)
 
@@ -1772,7 +1815,7 @@ void P_PoisonDamage (player_t *player, AActor *source, int damage, bool playPain
 	}
 	if (damage >= player->health
 		&& (G_SkillProperty(SKILLP_AutoUseHealth) || deathmatch)
-		&& !player->morphTics)
+		&& target->alternative == nullptr)
 	{ // Try to use some inventory health
 		P_AutoUseHealth(player, damage - player->health+1);
 	}
@@ -1802,7 +1845,7 @@ void P_PoisonDamage (player_t *player, AActor *source, int damage, bool playPain
 		else
 		{
 			target->special1 = damage;
-			if (player && !player->morphTics)
+			if (player && target->alternative == nullptr)
 			{ // Check for flame death
 				if ((player->poisontype == NAME_Fire) && (target->health > -50) && (damage > 25))
 				{
@@ -1858,8 +1901,8 @@ CCMD (kill)
 			if (CheckCheatmode ())
 				return;
 
-			Net_WriteByte (DEM_GENERICCHEAT);
-			Net_WriteByte (CHT_MASSACRE);
+			Net_WriteInt8 (DEM_GENERICCHEAT);
+			Net_WriteInt8 (CHT_MASSACRE);
 		}
 		else if (!stricmp (argv[1], "baddies"))
 		{
@@ -1867,12 +1910,12 @@ CCMD (kill)
 			if (CheckCheatmode ())
 				return;
 
-			Net_WriteByte (DEM_GENERICCHEAT);
-			Net_WriteByte (CHT_MASSACRE2);
+			Net_WriteInt8 (DEM_GENERICCHEAT);
+			Net_WriteInt8 (CHT_MASSACRE2);
 		}
 		else
 		{
-			Net_WriteByte (DEM_KILLCLASSCHEAT);
+			Net_WriteInt8 (DEM_KILLCLASSCHEAT);
 			Net_WriteString (argv[1]);
 		}
 	}
@@ -1883,7 +1926,7 @@ CCMD (kill)
 			return;
 
 		// Kill the player
-		Net_WriteByte (DEM_SUICIDE);
+		Net_WriteInt8 (DEM_SUICIDE);
 	}
 	C_HideConsole ();
 }
@@ -1895,7 +1938,7 @@ CCMD(remove)
 		if (CheckCheatmode())
 			return;
 
-		Net_WriteByte(DEM_REMOVE);
+		Net_WriteInt8(DEM_REMOVE);
 		Net_WriteString(argv[1]);
 		C_HideConsole();
 	}

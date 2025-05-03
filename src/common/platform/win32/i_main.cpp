@@ -43,6 +43,7 @@
 
 #include <processenv.h>
 #include <shellapi.h>
+#include <VersionHelpers.h>
 
 #ifdef _MSC_VER
 #pragma warning(disable:4244)
@@ -84,6 +85,8 @@
 // The main window's title.
 #ifdef _M_X64
 #define X64 " 64-bit"
+#elif _M_ARM64
+#define X64 " ARM-64"
 #else
 #define X64 ""
 #endif
@@ -129,8 +132,6 @@ bool			FancyStdOut, AttachedStdOut;
 
 void I_SetIWADInfo()
 {
-	// Make the startup banner show itself
-	mainwindow.UpdateLayout();
 }
 
 //==========================================================================
@@ -157,7 +158,7 @@ int DoMain (HINSTANCE hInstance)
 		Args->AppendArg(FString(wargv[i]));
 	}
 
-	if (Args->CheckParm("-stdout"))
+	if (Args->CheckParm("-stdout") || Args->CheckParm("-norun"))
 	{
 		// As a GUI application, we don't normally get a console when we start.
 		// If we were run from the shell and are on XP+, we can attach to its
@@ -179,7 +180,7 @@ int DoMain (HINSTANCE hInstance)
 				StdOut = NULL;
 			}
 		}
-		if (StdOut == NULL)
+		if (StdOut == nullptr)
 		{
 			if (AttachConsole(ATTACH_PARENT_PROCESS))
 			{
@@ -187,25 +188,21 @@ int DoMain (HINSTANCE hInstance)
 				DWORD foo; WriteFile(StdOut, "\n", 1, &foo, NULL);
 				AttachedStdOut = true;
 			}
-			if (StdOut == NULL && AllocConsole())
+			if (StdOut == nullptr && AllocConsole())
 			{
 				StdOut = GetStdHandle(STD_OUTPUT_HANDLE);
 			}
-
-			// Deprecated stuff for legacy consoles. As of now this is still relevant, but this code can be removed once Windows 7 is no longer relevant.
-			CONSOLE_FONT_INFOEX cfi;
-			cfi.cbSize = sizeof(cfi);
-			if (GetCurrentConsoleFontEx(StdOut, false, &cfi))
+			if (StdOut != nullptr)
 			{
-				if (*cfi.FaceName == 0)	// If the face name is empty, the default (useless) raster font is actoive.
+				SetConsoleCP(CP_UTF8);
+				SetConsoleOutputCP(CP_UTF8);
+				DWORD mode;
+				if (GetConsoleMode(StdOut, &mode))
 				{
-					//cfi.dwFontSize = { 8, 14 };
-					wcscpy(cfi.FaceName, L"Lucida Console");
-					cfi.FontFamily = FF_DONTCARE;
-					SetCurrentConsoleFontEx(StdOut, false, &cfi);
+					if (SetConsoleMode(StdOut, mode | ENABLE_VIRTUAL_TERMINAL_PROCESSING))
+						FancyStdOut = IsWindows10OrGreater(); // Windows 8.1 and lower do not understand ANSI formatting.
 				}
 			}
-			FancyStdOut = true;
 		}
 	}
 
@@ -267,7 +264,14 @@ int DoMain (HINSTANCE hInstance)
 	atexit ([](){ CoUninitialize(); }); // beware of calling convention.
 
 	int ret = GameMain ();
-	mainwindow.CheckForRestart();
+
+	if (mainwindow.CheckForRestart())
+	{
+		HMODULE hModule = GetModuleHandleW(NULL);
+		WCHAR path[MAX_PATH];
+		GetModuleFileNameW(hModule, path, MAX_PATH);
+		ShellExecuteW(NULL, L"open", path, GetCommandLineW(), NULL, SW_SHOWNORMAL);
+	}
 
 	DestroyCustomCursor();
 	if (ret == 1337) // special exit code for 'norun'.
@@ -280,12 +284,12 @@ int DoMain (HINSTANCE hInstance)
 				HANDLE stdinput = GetStdHandle(STD_INPUT_HANDLE);
 
 				ShowWindow(mainwindow.GetHandle(), SW_HIDE);
-				WriteFile(StdOut, "Press any key to exit...", 24, &bytes, NULL);
+				if (StdOut != nullptr) WriteFile(StdOut, "Press any key to exit...", 24, &bytes, nullptr);
 				FlushConsoleInputBuffer(stdinput);
 				SetConsoleMode(stdinput, 0);
 				ReadConsole(stdinput, &bytes, 1, &bytes, NULL);
 			}
-			else if (StdOut == NULL)
+			else if (StdOut == nullptr)
 			{
 				mainwindow.ShowErrorPane(nullptr);
 			}

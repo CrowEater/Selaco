@@ -63,7 +63,6 @@
 #include "d_gui.h"
 #include "c_console.h"
 #include "s_soundinternal.h"
-#include "gameconfigfile.h"
 #include "hardware.h"
 #include "d_eventbase.h"
 #include "v_text.h"
@@ -93,7 +92,6 @@ FJoystickCollection *JoyDevices[NUM_JOYDEVICES];
 
 
 extern HINSTANCE g_hInst;
-static HMODULE DInputDLL;
 
 bool GUICapture;
 extern FMouse *Mouse;
@@ -112,11 +110,12 @@ EXTERN_CVAR (Bool, use_mouse)
 static int WheelDelta;
 extern bool CursorState;
 
+void SetCursorState(bool visible);
+
 extern BOOL paused;
 static bool noidle = false;
 
 LPDIRECTINPUT8			g_pdi;
-LPDIRECTINPUT			g_pdi3;
 
 extern bool AppActive;
 
@@ -125,9 +124,10 @@ int BlockMouseMove;
 static bool EventHandlerResultForNativeMouse;
 
 
-CVAR (Bool, k_allowfullscreentoggle, true, CVAR_ARCHIVE|CVAR_GLOBALCONFIG)
+EXTERN_CVAR(Bool, i_pauseinbackground);
 
-extern int chatmodeon;
+
+CVAR (Bool, k_allowfullscreentoggle, true, CVAR_ARCHIVE|CVAR_GLOBALCONFIG)
 
 static void I_CheckGUICapture ()
 {
@@ -347,7 +347,8 @@ LRESULT CALLBACK WndProc (HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 		if (!GetRawInputData((HRAWINPUT)lParam, RID_INPUT, NULL, &size, sizeof(RAWINPUTHEADER)) &&
 			size != 0)
 		{
-			uint8_t *buffer = (uint8_t *)alloca(size);
+			TArray<uint8_t> array(size, true);
+			uint8_t *buffer = array.data();
 			if (GetRawInputData((HRAWINPUT)lParam, RID_INPUT, buffer, &size, sizeof(RAWINPUTHEADER)) == size)
 			{
 				int code = GET_RAWINPUT_CODE_WPARAM(wParam);
@@ -412,7 +413,7 @@ LRESULT CALLBACK WndProc (HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 		// If regional settings were changed, reget preferred languages
 		if (wParam == 0 && lParam != 0 && strcmp ((const char *)lParam, "intl") == 0)
 		{
-			language.Callback ();
+			language->Callback ();
 		}
 		return 0;
 
@@ -427,7 +428,7 @@ LRESULT CALLBACK WndProc (HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 	case WM_SETCURSOR:
 		if (!CursorState)
 		{
-			SetCursor(NULL); // turn off window cursor
+			SetCursorState(false); // turn off window cursor
 			return TRUE;	// Prevent Windows from setting cursor to window class cursor
 		}
 		else
@@ -491,8 +492,8 @@ LRESULT CALLBACK WndProc (HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 		break;
 
 	case WM_ACTIVATEAPP:
-		AppActive = wParam == TRUE;
-		if (wParam)
+		AppActive = (wParam == TRUE);
+		if (wParam || !i_pauseinbackground)
 		{
 			SetPriorityClass (GetCurrentProcess (), INGAME_PRIORITY_CLASS);
 		}
@@ -504,7 +505,7 @@ LRESULT CALLBACK WndProc (HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 		break;
 
 	case WM_ERASEBKGND:
-		return true;
+		return DefWindowProc(hWnd, message, wParam, lParam);
 
 	case WM_DEVICECHANGE:
 		if (wParam == DBT_DEVNODES_CHANGED ||
@@ -531,58 +532,12 @@ bool I_InitInput (void *hwnd)
 
 	noidle = !!Args->CheckParm ("-noidle");
 	g_pdi = NULL;
-	g_pdi3 = NULL;
 
-	// Try for DirectInput 8 first, then DirectInput 3 for NT 4's benefit.
-	DInputDLL = LoadLibraryA("dinput8.dll");
-	if (DInputDLL != NULL)
+	hr = DirectInput8Create(g_hInst, DIRECTINPUT_VERSION, IID_IDirectInput8, (void **)&g_pdi, NULL);
+	if (FAILED(hr))
 	{
-		typedef HRESULT (WINAPI *blah)(HINSTANCE, DWORD, REFIID, LPVOID *, LPUNKNOWN);
-		blah di8c = (blah)GetProcAddress(DInputDLL, "DirectInput8Create");
-		if (di8c != NULL)
-		{
-			hr = di8c(g_hInst, DIRECTINPUT_VERSION, IID_IDirectInput8, (void **)&g_pdi, NULL);
-			if (FAILED(hr))
-			{
-				Printf(TEXTCOLOR_ORANGE "DirectInput8Create failed: %08lx\n", hr);
-				g_pdi = NULL;	// Just to be sure DirectInput8Create didn't change it
-			}
-		}
-		else
-		{
-			Printf(TEXTCOLOR_ORANGE "Could not find DirectInput8Create in dinput8.dll\n");
-		}
-	}
-
-	if (g_pdi == NULL)
-	{
-		if (DInputDLL != NULL)
-		{
-			FreeLibrary(DInputDLL);
-		}
-		DInputDLL = LoadLibraryA ("dinput.dll");
-		if (DInputDLL == NULL)
-		{
-			I_FatalError ("Could not load dinput.dll: %08lx", GetLastError());
-		}
-
-		typedef HRESULT (WINAPI *blah)(HINSTANCE, DWORD, LPDIRECTINPUT*, LPUNKNOWN);
-#ifdef UNICODE
-		blah dic = (blah)GetProcAddress (DInputDLL, "DirectInputCreateW");
-#else
-		blah dic = (blah)GetProcAddress(DInputDLL, "DirectInputCreateA");
-#endif
-
-		if (dic == NULL)
-		{
-			I_FatalError ("dinput.dll is corrupt");
-		}
-
-		hr = dic (g_hInst, 0x0300, &g_pdi3, NULL);
-		if (FAILED(hr))
-		{
-			I_FatalError ("DirectInputCreate failed: %08lx", hr);
-		}
+		Printf(TEXTCOLOR_ORANGE "DirectInput8Create failed: %08lx\n", hr);
+		g_pdi = NULL;	// Just to be sure DirectInput8Create didn't change it
 	}
 
 	Printf ("I_StartupMouse\n");
@@ -629,16 +584,6 @@ void I_ShutdownInput ()
 	{
 		g_pdi->Release ();
 		g_pdi = NULL;
-	}
-	if (g_pdi3)
-	{
-		g_pdi3->Release ();
-		g_pdi3 = NULL;
-	}
-	if (DInputDLL != NULL)
-	{
-		FreeLibrary (DInputDLL);
-		DInputDLL = NULL;
 	}
 }
 
@@ -760,12 +705,15 @@ void I_PutInClipboard (const char *str)
 
 	auto wstr = WideString(str);
 	HGLOBAL cliphandle = GlobalAlloc (GMEM_DDESHARE, wstr.length() * 2 + 2);
-	if (cliphandle != NULL)
+	if (cliphandle != nullptr)
 	{
 		wchar_t *ptr = (wchar_t *)GlobalLock (cliphandle);
-		wcscpy (ptr, wstr.c_str());
-		GlobalUnlock (cliphandle);
-		SetClipboardData (CF_UNICODETEXT, cliphandle);
+		if (ptr)
+		{
+			wcscpy(ptr, wstr.c_str());
+			GlobalUnlock(cliphandle);
+			SetClipboardData(CF_UNICODETEXT, cliphandle);
+		}
 	}
 	CloseClipboard ();
 }

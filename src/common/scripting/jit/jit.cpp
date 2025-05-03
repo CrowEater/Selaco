@@ -6,13 +6,16 @@
 extern PString *TypeString;
 extern PStruct *TypeVector2;
 extern PStruct *TypeVector3;
+extern PStruct* TypeVector4;
+extern PStruct* TypeQuaternion;
+extern PStruct* TypeFQuaternion;
 
 static void OutputJitLog(const asmjit::StringLogger &logger);
 
 JitFuncPtr JitCompile(VMScriptFunction *sfunc)
 {
 #if 0
-	if (strcmp(sfunc->PrintableName.GetChars(), "StatusScreen.drawNum") != 0)
+	if (strcmp(sfunc->PrintableName, "StatusScreen.drawNum") != 0)
 		return nullptr;
 #endif
 
@@ -32,7 +35,7 @@ JitFuncPtr JitCompile(VMScriptFunction *sfunc)
 	catch (const CRecoverableError &e)
 	{
 		OutputJitLog(logger);
-		Printf("%s: Unexpected JIT error: %s\n",sfunc->PrintableName.GetChars(), e.what());
+		Printf("%s: Unexpected JIT error: %s\n",sfunc->PrintableName, e.what());
 		return nullptr;
 	}
 }
@@ -41,6 +44,13 @@ void JitDumpLog(FILE *file, VMScriptFunction *sfunc)
 {
 	using namespace asmjit;
 	StringLogger logger;
+
+	if(sfunc->VarFlags & VARF_Abstract)
+	{
+		// Printf(TEXTCOLOR_ORANGE "Skipping abstract function during JIT dump: %s\n", sfunc->PrintableName.GetChars());
+		return;
+	}
+
 	try
 	{
 		ThrowingErrorHandler errorHandler;
@@ -234,7 +244,7 @@ void JitCompiler::Setup()
 	cc.comment(marks, 56);
 
 	FString funcname;
-	funcname.Format("Function: %s", sfunc->PrintableName.GetChars());
+	funcname.Format("Function: %s", sfunc->PrintableName);
 	cc.comment(funcname.GetChars(), funcname.Len());
 
 	cc.comment(marks, 56);
@@ -315,6 +325,13 @@ void JitCompiler::SetupSimpleFrame()
 			cc.movsd(regF[regf++], x86::qword_ptr(args, argsPos++ * sizeof(VMValue) + offsetof(VMValue, f)));
 			cc.movsd(regF[regf++], x86::qword_ptr(args, argsPos++ * sizeof(VMValue) + offsetof(VMValue, f)));
 		}
+		else if (type == TypeVector4 || type == TypeFVector4 || type == TypeQuaternion || type == TypeFQuaternion)
+		{
+			cc.movsd(regF[regf++], x86::qword_ptr(args, argsPos++ * sizeof(VMValue) + offsetof(VMValue, f)));
+			cc.movsd(regF[regf++], x86::qword_ptr(args, argsPos++ * sizeof(VMValue) + offsetof(VMValue, f)));
+			cc.movsd(regF[regf++], x86::qword_ptr(args, argsPos++ * sizeof(VMValue) + offsetof(VMValue, f)));
+			cc.movsd(regF[regf++], x86::qword_ptr(args, argsPos++ * sizeof(VMValue) + offsetof(VMValue, f)));
+		}
 		else if (type == TypeFloat64)
 		{
 			cc.movsd(regF[regf++], x86::qword_ptr(args, argsPos++ * sizeof(VMValue) + offsetof(VMValue, f)));
@@ -354,7 +371,7 @@ void JitCompiler::SetupSimpleFrame()
 
 	if (errorDetails)
 	{
-		I_FatalError("JIT: inconsistent number of %s for function %s", errorDetails, sfunc->PrintableName.GetChars());
+		I_FatalError("JIT: inconsistent number of %s for function %s", errorDetails, sfunc->PrintableName);
 	}
 
 	for (int i = regd; i < sfunc->NumRegD; i++)
@@ -540,6 +557,20 @@ asmjit::X86Xmm JitCompiler::CheckRegF(int r0, int r1, int r2)
 asmjit::X86Xmm JitCompiler::CheckRegF(int r0, int r1, int r2, int r3)
 {
 	if (r0 != r1 && r0 != r2 && r0 != r3)
+	{
+		return regF[r0];
+	}
+	else
+	{
+		auto copy = newTempXmmSd();
+		cc.movsd(copy, regF[r0]);
+		return copy;
+	}
+}
+
+asmjit::X86Xmm JitCompiler::CheckRegF(int r0, int r1, int r2, int r3, int r4)
+{
+	if (r0 != r1 && r0 != r2 && r0 != r3 && r0 != r4)
 	{
 		return regF[r0];
 	}

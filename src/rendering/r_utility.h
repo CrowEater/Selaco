@@ -33,19 +33,26 @@ struct FRenderViewpoint
 	double			Sin;			// sin(Angles.Yaw)
 	double			TanCos;			// FocalTangent * cos(Angles.Yaw)
 	double			TanSin;			// FocalTangent * sin(Angles.Yaw)
+	double			PitchCos;		// cos(Angles.Pitch)
+	double			PitchSin;		// sin(Angles.Pitch)
+	double			floordistfact;	// used for isometric sprites Y-billboarding compensation in hw_sprites.cpp
+	double			cotfloor;		// used for isometric sprites Y-billboarding compensation in hw_sprites.cpp
+	angle_t		FrustAngle; 	// FrustumAngle() result
 
 	AActor			*camera;		// camera actor
 	sector_t		*sector;		// [RH] keep track of sector viewing from
 	DAngle			FieldOfView;	// current field of view
+	double			ScreenProj;	// Screen projection factor for orthographic projection
 
 	double			TicFrac;		// fraction of tic for interpolation
 	uint32_t		FrameTime;		// current frame's time in tics.
 	
 	int				extralight;		// extralight to be added to this viewpoint
 	bool			showviewer;		// show the camera actor?
-	bool			NoPortalPath;	// Disable portal interpolation path for actor viewpos.
-
-	void SetViewAngle(const FViewWindow &viewwindow);
+	bool			bForceNoViewer; // Never show the camera Actor.
+	void SetViewAngle(const FViewWindow& viewWindow);
+	bool IsAllowedOoB();				// Checks if camera actor exists, has viewpos, and viewpos has VPSF_ALLOWOUTOFBOUNDS flag set
+	bool IsOrtho();					// Checks if camera actor exists, has viewpos, and viewpos has VPSF_ORTHOGRAPHIC flag set
 
 };
 
@@ -124,7 +131,7 @@ void R_ClearInterpolationPath();
 void R_AddInterpolationPoint(const DVector3a &vec);
 void R_SetViewSize (int blocks);
 void R_SetFOV (FRenderViewpoint &viewpoint, DAngle fov);
-void R_SetupFrame (FRenderViewpoint &viewpoint, FViewWindow &viewwindow, AActor * camera);
+void R_SetupFrame(FRenderViewpoint& viewPoint, const FViewWindow& viewWindow, AActor* const camera);
 void R_SetViewAngle (FRenderViewpoint &viewpoint, const FViewWindow &viewwindow);
 
 // Called by startup code.

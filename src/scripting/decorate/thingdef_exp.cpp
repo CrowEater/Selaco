@@ -83,7 +83,7 @@ FxExpression *ParseExpression (FScanner &sc, PClassActor *cls, PNamespace *spc)
 	if (spc)
 	{
 		PClassType *vmtype = nullptr == cls ? nullptr : cls->VMType;
-		FCompileContext ctx(spc, vmtype, true);
+		FCompileContext ctx(spc, vmtype, true, MakeVersion(0,0));
 		data = data->Resolve(ctx);
 	}
 
@@ -477,7 +477,7 @@ static FxExpression *ParseExpression0 (FScanner &sc, PClassActor *cls)
 		{
 			FArgumentList args;
 			args.Push(exp);
-			exp = new FxFunctionCall(NAME_ResolveState, NAME_None, args, sc);
+			exp = new FxFunctionCall(NAME_ResolveState, NAME_None, std::move(args), sc);
 		}
 		sc.MustGetToken(')');
 		return exp;
@@ -512,7 +512,7 @@ static FxExpression *ParseExpression0 (FScanner &sc, PClassActor *cls)
 						ParseFunctionParameters(sc, cls, args, func, "", nullptr);
 					}
 					// FxVMFunctionCall cannot be used here as it lacks some important checks
-					return new FxFunctionCall(identifier, NAME_None, args, sc);
+					return new FxFunctionCall(identifier, NAME_None, std::move(args), sc);
 				}
 			}
 
@@ -543,7 +543,7 @@ static FxExpression *ParseExpression0 (FScanner &sc, PClassActor *cls)
 					while (sc.CheckToken(','));
 					sc.MustGetToken(')');
 				}
-				return new FxFunctionCall(identifier, NAME_None, args, sc);
+				return new FxFunctionCall(identifier, NAME_None, std::move(args), sc);
 			}
 		}
 		else

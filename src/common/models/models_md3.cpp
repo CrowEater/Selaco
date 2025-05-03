@@ -25,6 +25,7 @@
 #include "model_md3.h"
 #include "texturemanager.h"
 #include "modelrenderer.h"
+#include "m_swap.h"
 
 #define MAX_QPATH 64
 
@@ -133,6 +134,7 @@ bool FMD3Model::Load(const char * path, int lumpnum, const char * buffer, int le
 
 	auto numFrames = LittleLong(hdr->Num_Frames);
 	auto numSurfaces = LittleLong(hdr->Num_Surfaces);
+	hasSurfaces = numSurfaces > 1;
 
 	numTags = LittleLong(hdr->Num_Tags);
 
@@ -185,10 +187,9 @@ bool FMD3Model::Load(const char * path, int lumpnum, const char * buffer, int le
 //
 //===========================================================================
 
-void FMD3Model::LoadGeometry()
+void FMD3Model::LoadGeometry(FileSys::FileData* lumpData)
 {
-	FileData lumpdata = fileSystem.ReadFile(mLumpNum);
-	const char *buffer = (const char *)lumpdata.GetMem();
+	auto buffer = lumpData->string();
 	md3_header_t * hdr = (md3_header_t *)buffer;
 	md3_surface_t * surf = (md3_surface_t*)(buffer + LittleLong(hdr->Ofs_Surfaces));
 
@@ -242,7 +243,12 @@ void FMD3Model::BuildVertexBuffer(FModelRenderer *renderer)
 {
 	if (!GetVertexBuffer(renderer->GetType()))
 	{
-		LoadGeometry();
+		// If we already have the data, don't read it again
+		// Data could have been created during background fetch
+		if (Surfaces.size() > 0 && Surfaces[0].Vertices.Size() == 0) {
+			auto lumpdata = fileSystem.ReadFile(mLumpNum);
+			LoadGeometry(&lumpdata);
+		}
 
 		unsigned int vbufsize = 0;
 		unsigned int ibufsize = 0;
@@ -302,14 +308,13 @@ void FMD3Model::BuildVertexBuffer(FModelRenderer *renderer)
 //
 //===========================================================================
 
-void FMD3Model::AddSkins(uint8_t *hitlist)
+void FMD3Model::AddSkins(uint8_t *hitlist, const FTextureID* surfaceskinids)
 {
 	for (unsigned i = 0; i < Surfaces.Size(); i++)
 	{
-		int ssIndex = i + curMDLIndex * MD3_MAX_SURFACES;
-		if (curSpriteMDLFrame && curSpriteMDLFrame->surfaceskinIDs[ssIndex].isValid())
+		if (surfaceskinids && surfaceskinids[i].isValid())
 		{
-			hitlist[curSpriteMDLFrame->surfaceskinIDs[ssIndex].GetIndex()] |= FTextureManager::HIT_Flat;
+			hitlist[surfaceskinids[i].GetIndex()] |= FTextureManager::HIT_Flat;
 		}
 
 		MD3Surface * surf = &Surfaces[i];
@@ -329,13 +334,13 @@ void FMD3Model::AddSkins(uint8_t *hitlist)
 //
 //===========================================================================
 
-int FMD3Model::FindFrame(const char * name)
+int FMD3Model::FindFrame(const char* name, bool nodefault)
 {
 	for (unsigned i = 0; i < Frames.Size(); i++)
 	{
 		if (!stricmp(name, Frames[i].Name)) return i;
 	}
-	return -1;
+	return FErr_NotFound;
 }
 
 //===========================================================================
@@ -344,7 +349,7 @@ int FMD3Model::FindFrame(const char * name)
 //
 //===========================================================================
 
-void FMD3Model::RenderFrame(FModelRenderer *renderer, FGameTexture * skin, int frameno, int frameno2, double inter, int translation)
+void FMD3Model::RenderFrame(FModelRenderer *renderer, FGameTexture * skin, int frameno, int frameno2, double inter, FTranslationID translation, const FTextureID* surfaceskinids, const TArray<VSMatrix>& boneData, int boneStartPosition)
 {
 	if ((unsigned)frameno >= Frames.Size() || (unsigned)frameno2 >= Frames.Size()) return;
 
@@ -358,17 +363,13 @@ void FMD3Model::RenderFrame(FModelRenderer *renderer, FGameTexture * skin, int f
 		FGameTexture *surfaceSkin = skin;
 		if (!surfaceSkin)
 		{
-			if (curSpriteMDLFrame)
+			if (surfaceskinids && surfaceskinids[i].isValid())
 			{
-				int ssIndex = i + curMDLIndex * MD3_MAX_SURFACES;
-				if (curSpriteMDLFrame->surfaceskinIDs[ssIndex].isValid())
-				{
-					surfaceSkin = TexMan.GetGameTexture(curSpriteMDLFrame->surfaceskinIDs[ssIndex], true);
-				}
-				else if (surf->numSkins > 0 && surf->Skins[0].isValid())
-				{
-					surfaceSkin = TexMan.GetGameTexture(surf->Skins[0], true);
-				}
+				surfaceSkin = TexMan.GetGameTexture(surfaceskinids[i], true);
+			}
+			else if (surf->numSkins > 0 && surf->Skins[0].isValid())
+			{
+				surfaceSkin = TexMan.GetGameTexture(surf->Skins[0], true);
 			}
 
 			if (!surfaceSkin)
@@ -378,7 +379,7 @@ void FMD3Model::RenderFrame(FModelRenderer *renderer, FGameTexture * skin, int f
 		}
 
 		renderer->SetMaterial(surfaceSkin, false, translation);
-		renderer->SetupFrame(this, surf->vindex + frameno * surf->numVertices, surf->vindex + frameno2 * surf->numVertices, surf->numVertices);
+		renderer->SetupFrame(this, surf->vindex + frameno * surf->numVertices, surf->vindex + frameno2 * surf->numVertices, surf->numVertices, {}, -1);
 		renderer->DrawElements(surf->numTriangles * 3, surf->iindex * sizeof(unsigned int));
 	}
 	renderer->SetInterpolation(0.f);

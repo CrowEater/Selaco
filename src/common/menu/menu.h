@@ -88,12 +88,16 @@ public:
 	EColorRange mFontColor;
 	EColorRange mFontColor2;
 	bool mCenter;
+	bool mCenterText;
 	bool mFromEngine;
 	bool mAnimated;
 	bool mAnimatedTransition;
+	bool mDontDim;
+	bool mDontBlur;
 	int mVirtWidth;
 	int mVirtHeight;
 	bool mCustomSizeSet;
+	bool mForceList;
 
 	void Reset();
 };
@@ -123,6 +127,9 @@ public:
 	int mIndent;
 	int mPosition;
 	bool mDontDim;
+	bool mDontBlur;
+	bool mAnimatedTransition;
+	bool mAnimated;
 	FFont *mFont;
 
 	void CalcIndent();
@@ -142,6 +149,8 @@ public:
 	double textScale;
 	bool mAnimatedTransition;
 	bool mAnimated;
+	bool mDontDim;
+	bool mDontBlur;
 	int virtWidth, virtHeight;
 
 };
@@ -305,7 +314,7 @@ void M_ActivateMenu(DMenu *menu);
 void M_ClearMenus ();
 void M_PreviousMenu ();
 void M_ParseMenuDefs();
-void M_DoStartControlPanel(bool scaleoverride);
+void M_StartControlPanel(bool makeSound, bool scaleoverride = false);
 void M_SetMenu(FName menu, int param = -1);
 void M_StartMessage(const char *message, int messagemode, FName action = NAME_None);
 DMenu *StartPickerMenu(DMenu *parent, const char *name, FColorCVar *cvar);

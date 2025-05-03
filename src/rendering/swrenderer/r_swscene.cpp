@@ -39,12 +39,6 @@
 #include "d_main.h"
 #include "v_draw.h"
 
-// [RH] Base blending values (for e.g. underwater)
-int BaseBlendR, BaseBlendG, BaseBlendB;
-float BaseBlendA;
-
-
-
 class FSWPaletteTexture : public FImageSource
 {
 public:
@@ -54,7 +48,7 @@ public:
 		Height = 1;
 	}
 
-	int CopyPixels(FBitmap *bmp, int conversion) override
+	int CopyPixels(FBitmap *bmp, int conversion, int frame = 0) override
 	{
 		PalEntry *pe = (PalEntry*)bmp->GetPixels();
 		for (int i = 0; i < 256; i++)

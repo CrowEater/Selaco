@@ -35,7 +35,6 @@
 */
 
 #include "files.h"
-#include "gi.h"
 #include "bitmap.h"
 #include "textures.h"
 #include "imagehelpers.h"
@@ -61,7 +60,7 @@ public:
 		Height = srcdata.GetHeight();
 		bUseGamePalette = false;
 	}
-	int CopyPixels(FBitmap* bmp, int conversion)
+	int CopyPixels(FBitmap* bmp, int conversion, int frame = 0) override
 	{
 		bmp->Blit(0, 0, info);
 		return 0;

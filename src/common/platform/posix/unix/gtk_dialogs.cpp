@@ -64,6 +64,8 @@ typedef enum
 #include "printf.h"
 
 EXTERN_CVAR (Bool, queryiwad);
+EXTERN_CVAR (Int, vid_preferbackend);
+EXTERN_CVAR (Bool, vid_fullscreen);
 
 namespace Gtk {
 
@@ -95,6 +97,9 @@ DYN_GTK_SYM(gtk_button_box_set_layout);
 DYN_GTK_SYM(gtk_button_new_with_label);
 DYN_GTK_SYM(gtk_cell_renderer_text_new);
 DYN_GTK_SYM(gtk_check_button_new_with_label);
+DYN_GTK_SYM(gtk_radio_button_new_with_label);
+DYN_GTK_SYM(gtk_radio_button_new_with_label_from_widget);
+DYN_GTK_SYM(gtk_radio_button_get_type);
 DYN_GTK_SYM(gtk_container_add);
 DYN_GTK_SYM(gtk_container_get_type);
 DYN_GTK_SYM(gtk_container_set_border_width);
@@ -103,6 +108,7 @@ DYN_GTK_SYM(gtk_label_new);
 DYN_GTK_SYM(gtk_list_store_append);
 DYN_GTK_SYM(gtk_list_store_new);
 DYN_GTK_SYM(gtk_list_store_set);
+DYN_GTK_REQ_SYM(gtk_scrolled_window_new, GtkWidget* (*)(GtkAdjustment* hadjustment, GtkAdjustment* vadjustment));
 DYN_GTK_SYM(gtk_toggle_button_get_type);
 DYN_GTK_SYM(gtk_toggle_button_set_active);
 DYN_GTK_SYM(gtk_tree_model_get_type);
@@ -139,6 +145,7 @@ DYN_GTK_OPT3_SYM(gtk_button_box_new, GtkWidget *(*)(GtkOrientation));
 DYN_GTK_OPT3_SYM(gtk_widget_set_halign, void(*)(GtkWidget *, GtkAlign));
 DYN_GTK_OPT3_SYM(gtk_widget_set_valign, void(*)(GtkWidget *, GtkAlign));
 DYN_GTK_OPT3_SYM(gtk_message_dialog_new, GtkWidget* (*)(GtkWindow*, GtkDialogFlags, GtkMessageType, GtkButtonsType, const gchar*, ...));
+DYN_GTK_OPT3_SYM(gtk_scrolled_window_set_min_content_height, void (*)(GtkScrolledWindow*, gint));
 
 // Gtk2 Only
 DYN_GTK_OPT2_SYM(gtk_misc_get_type, GType(*)());
@@ -190,137 +197,133 @@ static void ClickedOK(GtkButton *button, gpointer func_data)
 	gtk_main_quit();
 }
 
-static int PickIWad (WadStuff *wads, int numwads, bool showwin, int defaultiwad)
+class ZUIWidget
 {
-	GtkWidget *window;
-	GtkWidget *vbox = nullptr;
-	GtkWidget *hbox = nullptr;
-	GtkWidget *bbox = nullptr;
-	GtkWidget *widget;
-	GtkWidget *tree;
-	GtkWidget *check;
-	GtkListStore *store;
-	GtkCellRenderer *renderer;
-	GtkTreeViewColumn *column;
-	GtkTreeSelection *selection;
-	GtkTreeIter iter, defiter;
-	int close_style = 0;
-	int i;
-	char caption[100];
+public:
+	virtual ~ZUIWidget() = default;
 
-	// Create the dialog window.
-	window = gtk_window_new (GTK_WINDOW_TOPLEVEL);
-	mysnprintf(caption, countof(caption), GAMENAME " %s: Select an IWAD to use", GetVersionString());
-	gtk_window_set_title (GTK_WINDOW(window), caption);
-	gtk_window_set_position (GTK_WINDOW(window), GTK_WIN_POS_CENTER);
-	gtk_window_set_gravity (GTK_WINDOW(window), GDK_GRAVITY_CENTER);
-	gtk_container_set_border_width (GTK_CONTAINER(window), 10);
-	g_signal_connect (window, "delete_event", G_CALLBACK(gtk_main_quit), NULL);
-	g_signal_connect (window, "key_press_event", G_CALLBACK(CheckEscape), NULL);
+	GtkWidget *widget = nullptr;
+};
 
-	// Create the vbox container.
-	if (gtk_box_new) // Gtk3
-		vbox = gtk_box_new (GTK_ORIENTATION_VERTICAL, 10);
-	else if (gtk_vbox_new) // Gtk2
-		vbox = gtk_vbox_new (FALSE, 10);
-
-	gtk_container_add (GTK_CONTAINER(window), vbox);
-
-	// Create the top label.
-	widget = gtk_label_new (GAMENAME " found more than one IWAD\nSelect from the list below to determine which one to use:");
-	gtk_box_pack_start (GTK_BOX(vbox), widget, false, false, 0);
-
-	if (gtk_widget_set_halign && gtk_widget_set_valign) // Gtk3
+class ZUIWindow : public ZUIWidget
+{
+public:
+	ZUIWindow(const char* title)
 	{
-		gtk_widget_set_halign (widget, GTK_ALIGN_START);
-		gtk_widget_set_valign (widget, GTK_ALIGN_START);
+		widget = gtk_window_new (GTK_WINDOW_TOPLEVEL);
+
+		gtk_window_set_title (GTK_WINDOW(widget), title);
+		gtk_window_set_position (GTK_WINDOW(widget), GTK_WIN_POS_CENTER);
+		gtk_window_set_gravity (GTK_WINDOW(widget), GDK_GRAVITY_CENTER);
+
+		gtk_container_set_border_width (GTK_CONTAINER(widget), 15);
+
+		g_signal_connect (widget, "delete_event", G_CALLBACK(gtk_main_quit), NULL);
+		g_signal_connect (widget, "key_press_event", G_CALLBACK(CheckEscape), NULL);
 	}
-	else if (gtk_misc_set_alignment && gtk_misc_get_type) // Gtk2
-		gtk_misc_set_alignment (GTK_MISC(widget), 0, 0);
 
-	// Create a list store with all the found IWADs.
-	store = gtk_list_store_new (3, G_TYPE_STRING, G_TYPE_STRING, G_TYPE_INT);
-	for (i = 0; i < numwads; ++i)
+	~ZUIWindow()
 	{
-		const char *filepart = strrchr (wads[i].Path, '/');
-		if (filepart == NULL)
-			filepart = wads[i].Path;
-		else
-			filepart++;
-		gtk_list_store_append (store, &iter);
-		gtk_list_store_set (store, &iter,
-			0, filepart,
-			1, wads[i].Name.GetChars(),
-			2, i,
-			-1);
-		if (i == defaultiwad)
+		if (GTK_IS_WINDOW(widget))
 		{
-			defiter = iter;
+			gtk_widget_destroy (widget);
+			// If we don't do this, then the X window might not actually disappear.
+			while (g_main_context_iteration (NULL, FALSE)) {}
 		}
 	}
 
-	// Create the tree view control to show the list.
-	tree = gtk_tree_view_new_with_model (GTK_TREE_MODEL(store));
-	renderer = gtk_cell_renderer_text_new ();
-	column = gtk_tree_view_column_new_with_attributes ("IWAD", renderer, "text", 0, NULL);
-	gtk_tree_view_append_column (GTK_TREE_VIEW(tree), column);
-	renderer = gtk_cell_renderer_text_new ();
-	column = gtk_tree_view_column_new_with_attributes ("Game", renderer, "text", 1, NULL);
-	gtk_tree_view_append_column (GTK_TREE_VIEW(tree), column);
-	gtk_box_pack_start (GTK_BOX(vbox), GTK_WIDGET(tree), true, true, 0);
-	g_signal_connect(G_OBJECT(tree), "button_press_event", G_CALLBACK(DoubleClickChecker), &close_style);
-	g_signal_connect(G_OBJECT(tree), "key_press_event", G_CALLBACK(AllowDefault), window);
+	void AddWidget(ZUIWidget* child)
+	{
+		gtk_container_add (GTK_CONTAINER(widget), child->widget);
+	}
 
-	// Select the default IWAD.
-	selection = gtk_tree_view_get_selection (GTK_TREE_VIEW(tree));
-	gtk_tree_selection_select_iter (selection, &defiter);
+	void RunModal()
+	{
+		gtk_widget_show_all (widget);
+		gtk_main ();
+	}
+};
 
-	// Create the hbox for the bottom row.
-	if (gtk_box_new) // Gtk3
-		hbox = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 0);
-	else if (gtk_hbox_new) // Gtk2
-		hbox = gtk_hbox_new (FALSE, 0);
+class ZUIVBox : public ZUIWidget
+{
+public:
+	ZUIVBox()
+	{
+		if (gtk_box_new) // Gtk3
+			widget = gtk_box_new (GTK_ORIENTATION_VERTICAL, 10);
+		else if (gtk_vbox_new) // Gtk2
+			widget = gtk_vbox_new (FALSE, 10);
+	}
 
-	gtk_box_pack_end (GTK_BOX(vbox), hbox, false, false, 0);
+	void PackStart(ZUIWidget* child, bool expand, bool fill, int padding)
+	{
+		gtk_box_pack_start (GTK_BOX(widget), child->widget, expand, fill, padding);
+	}
 
-	// Create the "Don't ask" checkbox.
-	check = gtk_check_button_new_with_label ("Don't ask me this again");
-	gtk_box_pack_start (GTK_BOX(hbox), check, false, false, 0);
-	gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON(check), !showwin);
+	void PackEnd(ZUIWidget* child, bool expand, bool fill, int padding)
+	{
+		gtk_box_pack_end (GTK_BOX(widget), child->widget, expand, fill, padding);
+	}
+};
 
-	// Create the OK/Cancel button box.
-	if (gtk_button_box_new) // Gtk3
-		bbox = gtk_button_box_new (GTK_ORIENTATION_HORIZONTAL);
-	else if (gtk_hbutton_box_new) // Gtk2
-		bbox = gtk_hbutton_box_new ();
+class ZUILabel : public ZUIWidget
+{
+public:
+	ZUILabel(const char* text)
+	{
+		widget = gtk_label_new (text);
 
-	gtk_button_box_set_layout (GTK_BUTTON_BOX(bbox), GTK_BUTTONBOX_END);
-	gtk_box_set_spacing (GTK_BOX(bbox), 10);
-	gtk_box_pack_end (GTK_BOX(hbox), bbox, false, false, 0);
+		if (gtk_widget_set_halign && gtk_widget_set_valign) // Gtk3
+		{
+			gtk_widget_set_halign (widget, GTK_ALIGN_START);
+			gtk_widget_set_valign (widget, GTK_ALIGN_START);
+		}
+		else if (gtk_misc_set_alignment && gtk_misc_get_type) // Gtk2
+			gtk_misc_set_alignment (GTK_MISC(widget), 0, 0);
+	}
+};
 
-	// Create the OK button.
-	widget = gtk_button_new_with_label ("OK");
+class ZUIListView : public ZUIWidget
+{
+public:
+	ZUIListView(WadStuff *wads, int numwads, int defaultiwad)
+	{
+		// Create a list store with all the found IWADs.
+		store = gtk_list_store_new (3, G_TYPE_STRING, G_TYPE_STRING, G_TYPE_INT);
+		for (int i = 0; i < numwads; ++i)
+		{
+			const char *filepart = strrchr (wads[i].Path.GetChars(), '/');
+			if (filepart == NULL)
+				filepart = wads[i].Path.GetChars();
+			else
+				filepart++;
+			gtk_list_store_append (store, &iter);
+			gtk_list_store_set (store, &iter,
+				0, filepart,
+				1, wads[i].Name.GetChars(),
+				2, i,
+				-1);
+			if (i == defaultiwad)
+			{
+				defiter = iter;
+			}
+		}
 
-	gtk_box_pack_start (GTK_BOX(bbox), widget, false, false, 0);
+		// Create the tree view control to show the list.
+		widget = gtk_tree_view_new_with_model (GTK_TREE_MODEL(store));
+		renderer = gtk_cell_renderer_text_new ();
+		column = gtk_tree_view_column_new_with_attributes ("IWAD", renderer, "text", 0, NULL);
+		gtk_tree_view_append_column (GTK_TREE_VIEW(widget), column);
+		renderer = gtk_cell_renderer_text_new ();
+		column = gtk_tree_view_column_new_with_attributes ("Game", renderer, "text", 1, NULL);
+		gtk_tree_view_append_column (GTK_TREE_VIEW(widget), column);
 
-	gtk_widget_set_can_default (widget, true);
+		// Select the default IWAD.
+		selection = gtk_tree_view_get_selection (GTK_TREE_VIEW(widget));
+		gtk_tree_selection_select_iter (selection, &defiter);
+	}
 
-	gtk_widget_grab_default (widget);
-	g_signal_connect (widget, "clicked", G_CALLBACK(ClickedOK), &close_style);
-	g_signal_connect (widget, "activate", G_CALLBACK(ClickedOK), &close_style);
-
-	// Create the cancel button.
-	widget = gtk_button_new_with_label ("Cancel");
-
-	gtk_box_pack_start (GTK_BOX(bbox), widget, false, false, 0);
-	g_signal_connect (widget, "clicked", G_CALLBACK(gtk_main_quit), &window);
-
-	// Finally we can show everything.
-	gtk_widget_show_all (window);
-
-	gtk_main ();
-
-	if (close_style == 1)
+	int GetSelectedIndex()
 	{
 		GtkTreeModel *model;
 		GValue value = { 0, { {0} } };
@@ -328,97 +331,181 @@ static int PickIWad (WadStuff *wads, int numwads, bool showwin, int defaultiwad)
 		// Find out which IWAD was selected.
 		gtk_tree_selection_get_selected (selection, &model, &iter);
 		gtk_tree_model_get_value (GTK_TREE_MODEL(model), &iter, 2, &value);
-		i = g_value_get_int (&value);
+		int i = g_value_get_int (&value);
 		g_value_unset (&value);
-
-		// Set state of queryiwad based on the checkbox.
-		queryiwad = !gtk_toggle_button_get_active (GTK_TOGGLE_BUTTON(check));
+		return i;
 	}
-	else
+
+	void ConnectButtonPress(int *close_style)
 	{
-		i = -1;
+		g_signal_connect(G_OBJECT(widget), "button_press_event", G_CALLBACK(DoubleClickChecker), close_style);
 	}
 
-	if (GTK_IS_WINDOW(window))
+	void ConnectKeyPress(ZUIWindow* window)
 	{
-		gtk_widget_destroy (window);
-		// If we don't do this, then the X window might not actually disappear.
-		while (g_main_context_iteration (NULL, FALSE)) {}
+		g_signal_connect(G_OBJECT(widget), "key_press_event", G_CALLBACK(AllowDefault), window->widget);
 	}
 
-	return i;
-}
+	GtkListStore *store = nullptr;
+	GtkCellRenderer *renderer = nullptr;
+	GtkTreeViewColumn *column = nullptr;
+	GtkTreeSelection *selection = nullptr;
+	GtkTreeIter iter, defiter;
+};
+
+class ZUIScrolledWindow : public ZUIWidget
+{
+public:
+	ZUIScrolledWindow(ZUIWidget* child)
+	{
+		widget = gtk_scrolled_window_new(NULL, NULL);
+		if(gtk_scrolled_window_set_min_content_height) gtk_scrolled_window_set_min_content_height((GtkScrolledWindow*)widget,150);
+		gtk_container_add(GTK_CONTAINER(widget), child->widget);
+	}
+};
+
+class ZUIHBox : public ZUIWidget
+{
+public:
+	ZUIHBox()
+	{
+		// Create the hbox for the bottom row.
+		if (gtk_box_new) // Gtk3
+			widget = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 0);
+		else if (gtk_hbox_new) // Gtk2
+			widget = gtk_hbox_new (FALSE, 0);
+	}
+
+	void PackStart(ZUIWidget* child, bool expand, bool fill, int padding)
+	{
+		gtk_box_pack_start (GTK_BOX(widget), child->widget, expand, fill, padding);
+	}
+
+	void PackEnd(ZUIWidget* child, bool expand, bool fill, int padding)
+	{
+		gtk_box_pack_end (GTK_BOX(widget), child->widget, expand, fill, padding);
+	}
+};
+
+class ZUICheckButton : public ZUIWidget
+{
+public:
+	ZUICheckButton(const char* text)
+	{
+		widget = gtk_check_button_new_with_label (text);
+	}
+
+	void SetChecked(bool value)
+	{
+		gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON(widget), value);
+	}
+
+	int GetChecked()
+	{
+		return gtk_toggle_button_get_active (GTK_TOGGLE_BUTTON(widget));
+	}
+};
+
+class ZUIRadioButton : public ZUIWidget
+{
+public:
+	ZUIRadioButton(const char* text)
+	{
+		widget = gtk_radio_button_new_with_label (nullptr, text);
+	}
+
+	ZUIRadioButton(ZUIRadioButton* group, const char* text)
+	{
+		widget = gtk_radio_button_new_with_label_from_widget (GTK_RADIO_BUTTON(group->widget), text);
+	}
+
+	void SetChecked(bool value)
+	{
+		gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON(widget), value);
+	}
+
+	int GetChecked()
+	{
+		return gtk_toggle_button_get_active (GTK_TOGGLE_BUTTON(widget));
+	}
+};
+
+class ZUIButtonBox : public ZUIWidget
+{
+public:
+	ZUIButtonBox()
+	{
+		if (gtk_button_box_new) // Gtk3
+			widget = gtk_button_box_new (GTK_ORIENTATION_HORIZONTAL);
+		else if (gtk_hbutton_box_new) // Gtk2
+			widget = gtk_hbutton_box_new ();
+
+		gtk_button_box_set_layout (GTK_BUTTON_BOX(widget), GTK_BUTTONBOX_END);
+		gtk_box_set_spacing (GTK_BOX(widget), 10);
+	}
+
+	void PackStart(ZUIWidget* child, bool expand, bool fill, int padding)
+	{
+		gtk_box_pack_start (GTK_BOX(widget), child->widget, expand, fill, padding);
+	}
+
+	void PackEnd(ZUIWidget* child, bool expand, bool fill, int padding)
+	{
+		gtk_box_pack_end (GTK_BOX(widget), child->widget, expand, fill, padding);
+	}
+};
+
+class ZUIButton : public ZUIWidget
+{
+public:
+	ZUIButton(const char* text, bool defaultButton)
+	{
+		widget = gtk_button_new_with_label (text);
+
+		if (defaultButton)
+		{
+			gtk_widget_set_can_default (widget, true);
+		}
+	}
+
+	void GrabDefault()
+	{
+		gtk_widget_grab_default (widget);
+	}
+
+	void ConnectClickedOK(int *close_style)
+	{
+		g_signal_connect (widget, "clicked", G_CALLBACK(ClickedOK), close_style);
+		g_signal_connect (widget, "activate", G_CALLBACK(ClickedOK), close_style);
+	}
+
+	void ConnectClickedExit(ZUIWindow* window)
+	{
+		g_signal_connect (widget, "clicked", G_CALLBACK(gtk_main_quit), &window->widget);
+	}
+};
+
 
 static void ShowError(const char* errortext)
 {
-	GtkWidget *window;
-	GtkWidget *widget;
-	GtkWidget *vbox = nullptr;
-	GtkWidget *bbox = nullptr;
+	ZUIWindow window("Fatal error");
+	ZUIVBox vbox;
+	ZUILabel label(errortext);
+	ZUIButtonBox bbox;
+	ZUIButton exitButton("Exit", true);
 
-	window = gtk_window_new (GTK_WINDOW_TOPLEVEL);
-	gtk_window_set_title (GTK_WINDOW(window), "Fatal error");
-	gtk_window_set_position (GTK_WINDOW(window), GTK_WIN_POS_CENTER);
-	gtk_window_set_gravity (GTK_WINDOW(window), GDK_GRAVITY_CENTER);
-	gtk_window_set_resizable (GTK_WINDOW(window), false);
-	gtk_container_set_border_width (GTK_CONTAINER(window), 10);
-	g_signal_connect (window, "delete_event", G_CALLBACK(gtk_main_quit), NULL);
-	g_signal_connect (window, "key_press_event", G_CALLBACK(CheckEscape), NULL);
+	window.AddWidget(&vbox);
+	vbox.PackStart(&label, true, true, 0);
+	vbox.PackEnd(&bbox, false, false, 0);
+	bbox.PackEnd(&exitButton, false, false, 0);
 
-	// Create the vbox container.
-	if (gtk_box_new) // Gtk3
-		vbox = gtk_box_new (GTK_ORIENTATION_VERTICAL, 10);
-	else if (gtk_vbox_new) // Gtk2
-		vbox = gtk_vbox_new (FALSE, 10);
+	exitButton.ConnectClickedExit(&window);
 
-	gtk_container_add (GTK_CONTAINER(window), vbox);
-
-	// Create the label.
-	widget = gtk_label_new ((const gchar *) errortext);
-	gtk_box_pack_start (GTK_BOX(vbox), widget, false, false, 0);
-
-	if (gtk_widget_set_halign && gtk_widget_set_valign) // Gtk3
-	{
-		gtk_widget_set_halign (widget, GTK_ALIGN_START);
-		gtk_widget_set_valign (widget, GTK_ALIGN_START);
-	}
-	else if (gtk_misc_set_alignment && gtk_misc_get_type) // Gtk2
-		gtk_misc_set_alignment (GTK_MISC(widget), 0, 0);
-
-	// Create the Exit button box.
-	if (gtk_button_box_new) // Gtk3
-		bbox = gtk_button_box_new (GTK_ORIENTATION_HORIZONTAL);
-	else if (gtk_hbutton_box_new) // Gtk2
-		bbox = gtk_hbutton_box_new ();
-
-	gtk_button_box_set_layout (GTK_BUTTON_BOX(bbox), GTK_BUTTONBOX_END);
-	gtk_box_set_spacing (GTK_BOX(bbox), 10);
-	gtk_box_pack_end (GTK_BOX(vbox), bbox, false, false, 0);
-
-	// Create the cancel button.
-	widget = gtk_button_new_with_label ("Exit");
-	gtk_box_pack_start (GTK_BOX(bbox), widget, false, false, 0);
-	g_signal_connect (widget, "clicked", G_CALLBACK(gtk_main_quit), &window);
-
-	// Finally we can show everything.
-	gtk_widget_show_all (window);
-
-	gtk_main ();
-
-	if (GTK_IS_WINDOW(window))
-	{
-		gtk_widget_destroy (window);
-		// If we don't do this, then the X window might not actually disappear.
-		while (g_main_context_iteration (NULL, FALSE)) {}
-	}
+	exitButton.GrabDefault();
+	window.RunModal();
 }
 
 } // namespace Gtk
-
-int I_PickIWad_Gtk (WadStuff *wads, int numwads, bool showwin, int defaultiwad)
-{
-	return Gtk::PickIWad (wads, numwads, showwin, defaultiwad);
-}
 
 void I_ShowFatalError_Gtk(const char* errortext) {
 	Gtk::ShowError(errortext);

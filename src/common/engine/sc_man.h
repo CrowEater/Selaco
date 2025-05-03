@@ -1,6 +1,7 @@
 #ifndef __SC_MAN_H__
 #define __SC_MAN_H__
 
+#include <vector>
 #include "zstring.h"
 #include "tarray.h"
 #include "name.h"
@@ -12,19 +13,19 @@ struct VersionInfo
 	uint16_t minor;
 	uint32_t revision;
 
-	bool operator <=(const VersionInfo& o) const
+	constexpr bool operator <=(const VersionInfo& o) const
 	{
 		return o.major > this->major || (o.major == this->major && o.minor > this->minor) || (o.major == this->major && o.minor == this->minor && o.revision >= this->revision);
 	}
-	bool operator >=(const VersionInfo& o) const
+	constexpr bool operator >=(const VersionInfo& o) const
 	{
 		return o.major < this->major || (o.major == this->major && o.minor < this->minor) || (o.major == this->major && o.minor == this->minor && o.revision <= this->revision);
 	}
-	bool operator > (const VersionInfo& o) const
+	constexpr bool operator > (const VersionInfo& o) const
 	{
 		return o.major < this->major || (o.major == this->major && o.minor < this->minor) || (o.major == this->major && o.minor == this->minor && o.revision < this->revision);
 	}
-	bool operator < (const VersionInfo& o) const
+	constexpr bool operator < (const VersionInfo& o) const
 	{
 		return o.major > this->major || (o.major == this->major && o.minor > this->minor) || (o.major == this->major && o.minor == this->minor && o.revision > this->revision);
 	}
@@ -32,7 +33,7 @@ struct VersionInfo
 };
 
 // Cannot be a constructor because Lemon would puke on it.
-inline VersionInfo MakeVersion(unsigned int ma, unsigned int mi, unsigned int re = 0)
+constexpr VersionInfo MakeVersion(unsigned int ma, unsigned int mi, unsigned int re = 0)
 {
 	return{ (uint16_t)ma, (uint16_t)mi, (uint32_t)re };
 }
@@ -54,23 +55,27 @@ public:
 		double Float;
 	};
 
+	using SymbolMap = TMap<FName, Symbol>;
 
-	TMap<FName, Symbol> symbols;
+	SymbolMap mysymbols;
+	SymbolMap& symbols;
+	TMap<FName, Symbol>& GetSymbols() { return symbols; }
 
 	// Methods ------------------------------------------------------
-	FScanner();
-	FScanner(const FScanner &other);
-	FScanner(int lumpnum);
-	~FScanner();
-
-	FScanner &operator=(const FScanner &other);
+	FScanner(TMap<FName, Symbol>* extsymbols = nullptr);
+	FScanner(const FScanner& other) = delete;
+	FScanner& operator=(const FScanner& other) = delete;
+	FScanner(int lumpnum, TMap<FName, Symbol>* extsymbols = nullptr);
+	~FScanner() = default;
 
 	void Open(const char *lumpname);
 	bool OpenFile(const char *filename);
 	void OpenMem(const char *name, const char *buffer, int size);
-	void OpenMem(const char *name, const TArray<uint8_t> &buffer)
+	template<class T>
+	void OpenMem(const char* name, const T& buffer)
 	{
-		OpenMem(name, (const char*)buffer.Data(), buffer.Size());
+		static_assert(sizeof(typename T::value_type) == 1);
+		OpenMem(name, (const char*)buffer.data(), (int)buffer.size());
 	}
 	void OpenString(const char *name, FString buffer);
 	void OpenLumpNum(int lump);
@@ -115,6 +120,13 @@ public:
 	void MustGetNumber(bool evaluate = false);
 	bool CheckNumber(bool evaluate = false);
 
+	bool GetNumber(int16_t& var, bool evaluate = false)
+	{
+		if (!GetNumber(evaluate)) return false;
+		var = Number;
+		return true;
+	}
+
 	bool GetNumber(int& var, bool evaluate = false)
 	{
 		if (!GetNumber(evaluate)) return false;
@@ -155,9 +167,9 @@ public:
 	void MustGetFloat(bool evaluate = false);
 	bool CheckFloat(bool evaluate = false);
 
-	double *LookupConstant(FName name)
+	Symbol *LookupSymbol(FName name)
 	{
-		return constants.CheckKey(name);
+		return symbols.CheckKey(name);
 	}
 
 	// Token based variant
@@ -180,6 +192,7 @@ public:
 
 	void ScriptError(const char *message, ...) GCCPRINTF(2,3);
 	void ScriptMessage(const char *message, ...) GCCPRINTF(2,3);
+	void SetPrependMessage(const FString& message) { PrependMessage = message; }
 
 	bool isText();
 
@@ -226,6 +239,7 @@ protected:
 	bool StateOptions;
 	bool Escape;
 	VersionInfo ParseVersion = { 0, 0, 0 };	// no ZScript extensions by default
+	FString PrependMessage = "";
 
 
 	bool ScanValue(bool allowfloat, bool evaluate);

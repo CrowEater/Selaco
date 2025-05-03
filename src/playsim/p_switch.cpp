@@ -195,11 +195,14 @@ bool P_CheckSwitchRange(AActor *user, line_t *line, int sideno, const DVector3 *
 			}
 		}
 
-		return (user->Level->i_compatflags2 & COMPATF2_CHECKSWITCHRANGE)
+		if ((user->Level->i_compatflags2 & COMPATF2_CHECKSWITCHRANGE)
 			? (user->Top() >= open.top)
-			: (user->Top() > open.top);
+			: (user->Top() > open.top))
+		{
+			return true;
+		}
 	}
-	else if ((TexAnim.FindSwitch(side->GetTexture(side_t::bottom))) != NULL)
+	if ((TexAnim.FindSwitch(side->GetTexture(side_t::bottom))) != NULL)
 	{
 		// Check 3D floors on back side
 		{
@@ -219,11 +222,14 @@ bool P_CheckSwitchRange(AActor *user, line_t *line, int sideno, const DVector3 *
 			}
 		}
 
-		return (user->Level->i_compatflags2 & COMPATF2_CHECKSWITCHRANGE)
+		if ((user->Level->i_compatflags2 & COMPATF2_CHECKSWITCHRANGE)
 			? (user->Z() <= open.bottom)
-			: (user->Z() < open.bottom);
+			: (user->Z() < open.bottom))
+		{
+			return true;
+		}
 	}
-	else if ((flags & ML_3DMIDTEX) || (TexAnim.FindSwitch(side->GetTexture(side_t::mid))) != NULL)
+	if ((flags & ML_3DMIDTEX) || (TexAnim.FindSwitch(side->GetTexture(side_t::mid))) != NULL)
 	{
 		// 3DMIDTEX lines will force a mid texture check if no switch is found on this line
 		// to keep compatibility with Eternity's implementation.
@@ -250,7 +256,7 @@ bool P_CheckSwitchRange(AActor *user, line_t *line, int sideno, const DVector3 *
 bool P_ChangeSwitchTexture (side_t *side, int useAgain, uint8_t special, bool *quest)
 {
 	int texture;
-	int sound;
+	FSoundID sound;
 	FSwitchDef *Switch;
 
 	if ((Switch = TexAnim.FindSwitch (side->GetTexture(side_t::top))) != NULL)
@@ -275,7 +281,7 @@ bool P_ChangeSwitchTexture (side_t *side, int useAgain, uint8_t special, bool *q
 	}
 
 	// EXIT SWITCH?
-	if (Switch->Sound != 0)
+	if (Switch->Sound != NO_SOUND)
 	{
 		sound = Switch->Sound;
 	}
@@ -404,7 +410,7 @@ void DActiveButton::Tick ()
 			{
 				m_Frame = -1;
 				S_Sound (Level, DVector3(m_Pos, 0), CHAN_VOICE, CHANF_LISTENERZ,
-					def->Sound != 0 ? FSoundID(def->Sound) : FSoundID("switches/normbutn"),
+					def->Sound != NO_SOUND ? FSoundID(def->Sound) : S_FindSound("switches/normbutn"),
 					1, ATTN_STATIC);
 				bFlippable = false;
 			}

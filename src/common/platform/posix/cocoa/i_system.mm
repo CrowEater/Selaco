@@ -32,6 +32,7 @@
  */
 
 #include "i_common.h"
+#include "c_cvars.h"
 
 #include <fnmatch.h>
 #include <sys/sysctl.h>
@@ -40,7 +41,7 @@
 #include "st_console.h"
 #include "v_text.h"
 
-
+EXTERN_CVAR(Bool, longsavemessages)
 double PerfToSec, PerfToMillisec;
 
 void CalculateCPUSpeed()
@@ -121,7 +122,7 @@ void I_ShowFatalError(const char *message)
 }
 
 
-int I_PickIWad(WadStuff* const wads, const int numwads, const bool showwin, const int defaultiwad)
+int I_PickIWad(WadStuff* const wads, const int numwads, const bool showwin, const int defaultiwad, int&, FString&)
 {
 	if (!showwin)
 	{
@@ -170,3 +171,27 @@ unsigned int I_MakeRNGSeed()
 {
 	return static_cast<unsigned int>(arc4random());
 }
+
+FString I_GetCWD()
+{
+	NSString *currentpath = [[NSFileManager defaultManager] currentDirectoryPath];
+	return currentpath.UTF8String;
+}
+
+bool I_ChDir(const char* path)
+{
+	return [[NSFileManager defaultManager] changeCurrentDirectoryPath:[NSString stringWithUTF8String:path]];
+}
+
+void I_OpenShellFolder(const char* folder)
+{
+	NSFileManager *filemgr = [NSFileManager defaultManager];
+	NSString *currentpath = [filemgr currentDirectoryPath];
+
+	[filemgr changeCurrentDirectoryPath:[NSString stringWithUTF8String:folder]];
+	if (longsavemessages)
+		Printf("Opening folder: %s\n", folder);
+	std::system("open .");
+	[filemgr changeCurrentDirectoryPath:currentpath];
+}
+

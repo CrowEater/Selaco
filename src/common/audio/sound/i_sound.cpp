@@ -70,9 +70,6 @@ CVAR(Int, snd_hrtf, -1, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
 
 CVAR(String, snd_backend, DEF_BACKEND, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
 
-// killough 2/21/98: optionally use varying pitched sounds
-CVAR (Bool, snd_pitched, false, CVAR_ARCHIVE)
-
 SoundRenderer *GSnd;
 bool nosound;
 bool nosfx;
@@ -99,8 +96,8 @@ CUSTOM_CVAR(Float, snd_mastervolume, 1.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG | CVA
 		self = 1.f;
 
 	ChangeMusicSetting(zmusic_snd_mastervolume, nullptr, self);
-	snd_sfxvolume.Callback();
-	snd_musicvolume.Callback();
+	snd_sfxvolume->Callback();
+	snd_musicvolume->Callback();
 }
 
 //==========================================================================
@@ -134,7 +131,7 @@ public:
 	void SetMusicVolume (float volume)
 	{
 	}
-	SoundHandle LoadSound(uint8_t *sfxdata, int length)
+	SoundHandle LoadSound(uint8_t *sfxdata, int length, int def_loop_start, int def_loop_end)
 	{
 		SoundHandle retval = { NULL };
 		return retval;
@@ -251,7 +248,7 @@ public:
 
 void I_InitSound ()
 {
-	FModule_SetProgDir(progdir);
+	FModule_SetProgDir(progdir.GetChars());
 	/* Get command line options: */
 	nosound = !!Args->CheckParm ("-nosound");
 	nosfx = !!Args->CheckParm ("-nosfx");
@@ -283,7 +280,7 @@ void I_InitSound ()
 		GSnd = new NullSoundRenderer;
 		Printf (TEXTCOLOR_RED"Sound init failed. Using nosound.\n");
 	}
-	snd_sfxvolume.Callback ();
+	snd_sfxvolume->Callback ();
 }
 
 
@@ -302,6 +299,7 @@ const char *GetSampleTypeName(SampleType type)
     {
         case SampleType_UInt8: return "Unsigned 8-bit";
         case SampleType_Int16: return "Signed 16-bit";
+		default: break;
     }
     return "(invalid sample type)";
 }

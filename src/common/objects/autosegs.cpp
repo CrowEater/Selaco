@@ -42,6 +42,7 @@
 ** compile with something other than Visual C++ or GCC.
 */
 
+#include <cassert>
 #include "autosegs.h"
 
 #ifdef _WIN32
@@ -74,6 +75,7 @@ AUTOSEG_VARIABLE(TypeInfos, AUTOSEG_CREG)
 AUTOSEG_VARIABLE(ClassFields, AUTOSEG_FREG)
 AUTOSEG_VARIABLE(Properties, AUTOSEG_GREG)
 AUTOSEG_VARIABLE(MapInfoOptions, AUTOSEG_YREG)
+AUTOSEG_VARIABLE(CVarDecl, AUTOSEG_VREG)
 
 #undef AUTOSEG_VARIABLE
 #undef AUTOSEG_STOP

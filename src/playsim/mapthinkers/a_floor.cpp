@@ -41,6 +41,7 @@
 #include "g_levellocals.h"
 #include "vm.h"
 #include "r_utility.h"
+#include "actorinlines.h"
 
 //==========================================================================
 //
@@ -154,7 +155,7 @@ void DFloor::Tick ()
 				case genFloorChgT:
 				case genFloorChg0:
 					m_Sector->SetSpecial(&m_NewSpecial);
-					//fall thru
+					[[fallthrough]];
 				case genFloorChg:
 					m_Sector->SetTexture(sector_t::floor, m_Texture);
 					break;
@@ -170,7 +171,7 @@ void DFloor::Tick ()
 				case genFloorChgT:
 				case genFloorChg0:
 					m_Sector->SetSpecial(&m_NewSpecial);
-					//fall thru
+					[[fallthrough]];
 				case genFloorChg:
 					m_Sector->SetTexture(sector_t::floor, m_Texture);
 					break;
@@ -810,13 +811,12 @@ bool FLevelLocals::EV_DoDonut (int tag, line_t *line, double pillarspeed, double
 		if (!s2)								// note lowest numbered line around
 			continue;							// pillar must be two-sided
 
-		if (s2->PlaneMoving(sector_t::floor))
+		if (!(i_compatflags2 & COMPATF2_FLOORMOVE) && s2->PlaneMoving(sector_t::floor))
 			continue;
 
 		for (auto ln : s2->Lines)
 		{
-			if (!(ln->flags & ML_TWOSIDED) ||
-				(ln->backsector == s1))
+			if (ln->backsector == nullptr || ln->backsector == s1)
 				continue;
 			s3 = ln->backsector;
 			

@@ -99,32 +99,9 @@ void VersionInfo::operator=(const char *string)
 //
 //==========================================================================
 
-FScanner::FScanner()
+FScanner::FScanner(TMap<FName, Symbol>* extsymbols) : symbols(extsymbols? *extsymbols : mysymbols)
 {
 	ScriptOpen = false;
-}
-
-//==========================================================================
-//
-// FScanner Destructor
-//
-//==========================================================================
-
-FScanner::~FScanner()
-{
-	// Humm... Nothing to do in here.
-}
-
-//==========================================================================
-//
-// FScanner Copy Constructor
-//
-//==========================================================================
-
-FScanner::FScanner(const FScanner &other)
-{
-	ScriptOpen = false;
-	*this = other;
 }
 
 //==========================================================================
@@ -133,70 +110,10 @@ FScanner::FScanner(const FScanner &other)
 //
 //==========================================================================
 
-FScanner::FScanner(int lumpnum)
+FScanner::FScanner(int lumpnum, TMap<FName, Symbol>* extsymbols) : symbols(extsymbols ? *extsymbols : mysymbols)
 {
 	ScriptOpen = false;
 	OpenLumpNum(lumpnum);
-}
-
-//==========================================================================
-//
-// FScanner :: operator =
-//
-//==========================================================================
-
-FScanner &FScanner::operator=(const FScanner &other)
-{
-	if (this == &other)
-	{
-		return *this;
-	}
-	if (!other.ScriptOpen)
-	{
-		Close();
-		return *this;
-	}
-
-	// Copy protected members
-	ScriptOpen = true;
-	ScriptName = other.ScriptName;
-	ScriptBuffer = other.ScriptBuffer;
-	ScriptPtr = other.ScriptPtr;
-	ScriptEndPtr = other.ScriptEndPtr;
-	AlreadyGot = other.AlreadyGot;
-	AlreadyGotLine = other.AlreadyGotLine;
-	LastGotToken = other.LastGotToken;
-	LastGotPtr = other.LastGotPtr;
-	LastGotLine = other.LastGotLine;
-	CMode = other.CMode;
-	Escape = other.Escape;
-	StateMode = other.StateMode;
-	StateOptions = other.StateOptions;
-
-	// Copy public members
-	if (other.String == other.StringBuffer)
-	{
-		memcpy(StringBuffer, other.StringBuffer, sizeof(StringBuffer));
-		BigStringBuffer = "";
-		String = StringBuffer;
-	}
-	else
-	{
-		// Past practice means the string buffer must be writeable, which
-		// removes some of the benefit from using an FString to store
-		// the big string buffer.
-		BigStringBuffer = other.BigStringBuffer;
-		String = BigStringBuffer.LockBuffer();
-	}
-	StringLen = other.StringLen;
-	TokenType = other.TokenType;
-	Number = other.Number;
-	Float = other.Float;
-	Line = other.Line;
-	End = other.End;
-	Crossed = other.Crossed;
-
-	return *this;
 }
 
 //==========================================================================
@@ -219,7 +136,7 @@ void FScanner::Open (const char *name)
 //
 // FScanner :: OpenFile
 //
-// Loads a script from a file. Uses new/delete for memory allocation.
+// Loads a script from a file.
 //
 //==========================================================================
 
@@ -231,9 +148,9 @@ bool FScanner::OpenFile (const char *name)
 	if (!fr.OpenFile(name)) return false;
 	auto filesize = fr.GetLength();
 	auto filebuff = fr.Read();
-	if (filebuff.Size() == 0 && filesize > 0) return false;
+	if (filebuff.size() == 0 && filesize > 0) return false;
 
-	ScriptBuffer = FString((const char *)filebuff.Data(), filesize);
+	ScriptBuffer = FString(filebuff.string(), filesize);
 	ScriptName = name;	// This is used for error messages so the full file name is preferable
 	LumpNum = -1;
 	PrepareScript ();
@@ -283,10 +200,13 @@ void FScanner :: OpenLumpNum (int lump)
 {
 	Close ();
 	{
-		FileData mem = fileSystem.ReadFile(lump);
-		ScriptBuffer = mem.GetString();
+		auto len = fileSystem.FileLength(lump);
+		auto buff = ScriptBuffer.LockNewBuffer(len);
+		fileSystem.ReadFile(lump, buff);
+		buff[len] = 0;
+		ScriptBuffer.UnlockBuffer();
 	}
-	ScriptName = fileSystem.GetFileFullPath(lump);
+	ScriptName = fileSystem.GetFileFullPath(lump).c_str();
 	LumpNum = lump;
 	PrepareScript ();
 }
@@ -340,6 +260,7 @@ void FScanner::PrepareScript ()
 	StateOptions = false;
 	StringBuffer[0] = '\0';
 	BigStringBuffer = "";
+	ParseError = false;
 }
 
 //==========================================================================
@@ -1169,14 +1090,33 @@ void FScanner::ScriptError (const char *message, ...)
 		va_end (arglist);
 	}
 
+	FString modFile = "";
+
+	if (LumpNum > 0) {
+		int wi = fileSystem.GetFileContainer(LumpNum);
+		int wi2 = fileSystem.GetFileContainer(370);
+		if (!(wi == wi2 && wi > 0 && wi2 >= 0)) {
+			modFile = fileSystem.GetWadName(wi);
+		}
+	}
+
+	ParseError = true;
 	if (NoFatalErrors)
 	{
-		Printf(TEXTCOLOR_RED "Script error, \"%s\"" TEXTCOLOR_RED " line %d:\n" TEXTCOLOR_RED "%s\n", ScriptName.GetChars(),
+		Printf(TEXTCOLOR_RED "%sScript error, \"%s\"" TEXTCOLOR_RED " line %d:\n" TEXTCOLOR_RED "%s\n", PrependMessage.GetChars(), ScriptName.GetChars(),
 			AlreadyGot ? AlreadyGotLine : Line, composed.GetChars());
 		return;
 	}
-	I_Error ("Script error, \"%s\" line %d:\n%s\n", ScriptName.GetChars(),
-		AlreadyGot? AlreadyGotLine : Line, composed.GetChars());
+
+	if (modFile.IsEmpty()) {
+		I_Error("%sScript error, \"%s\" line %d:\n%s\n", PrependMessage.GetChars(), ScriptName.GetChars(),
+			AlreadyGot ? AlreadyGotLine : Line, composed.GetChars());
+	}
+	else {
+		I_Error("%sMod: %s\n------------\nScript error, \"%s\" line %d:\n%s\n", PrependMessage.GetChars(), modFile.GetChars(), ScriptName.GetChars(),
+			AlreadyGot ? AlreadyGotLine : Line, composed.GetChars());
+	}
+	
 }
 
 //==========================================================================
@@ -1201,8 +1141,25 @@ void FScanner::ScriptMessage (const char *message, ...)
 		va_end (arglist);
 	}
 
-	Printf (TEXTCOLOR_RED "Script error, \"%s\"" TEXTCOLOR_RED " line %d:\n" TEXTCOLOR_RED "%s\n", ScriptName.GetChars(),
-		AlreadyGot? AlreadyGotLine : Line, composed.GetChars());
+	FString modFile = "";
+
+	if (LumpNum > 0) {
+		int wi = fileSystem.GetFileContainer(LumpNum);
+		int wi2 = fileSystem.GetFileContainer(370);
+		if (!(wi == wi2 && wi > 0 && wi2 >= 0)) {
+			modFile = fileSystem.GetWadName(wi);
+		}
+	}
+
+	ParseError = true;
+	if (modFile.IsEmpty()) {
+		Printf(TEXTCOLOR_RED "%sScript error, \"%s\"" TEXTCOLOR_RED " line %d:\n" TEXTCOLOR_RED "%s\n", PrependMessage.GetChars(), ScriptName.GetChars(),
+			AlreadyGot ? AlreadyGotLine : Line, composed.GetChars());
+	}
+	else {
+		Printf(TEXTCOLOR_RED "%sMod: %s\nScript error, \"%s\"" TEXTCOLOR_RED " line %d:\n" TEXTCOLOR_RED "%s\n", PrependMessage.GetChars(), modFile.GetChars(), ScriptName.GetChars(),
+			AlreadyGot ? AlreadyGotLine : Line, composed.GetChars());
+	}
 }
 
 //==========================================================================
@@ -1229,7 +1186,7 @@ void FScanner::AddSymbol(const char *name, int64_t value)
 {
 	Symbol sym;
 	sym.tokenType = TK_IntConst;
-	sym.Number = int(value);
+	sym.Number = value;
 	sym.Float = double(value);
 	symbols.Insert(name, sym);
 }
@@ -1462,5 +1419,4 @@ int ParseHex(const char* hex, FScriptPosition* sc)
 
 	return num;
 }
-
 

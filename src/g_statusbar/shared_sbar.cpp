@@ -85,7 +85,6 @@ EXTERN_CVAR (Bool, am_showsecrets)
 EXTERN_CVAR (Bool, am_showitems)
 EXTERN_CVAR (Bool, am_showtime)
 EXTERN_CVAR (Bool, am_showtotaltime)
-EXTERN_CVAR (Bool, noisedebug)
 EXTERN_CVAR(Bool, inter_subtitles)
 EXTERN_CVAR(Bool, ui_screenborder_classic_scaling)
 
@@ -103,17 +102,6 @@ CVAR (Flag, pf_poison,		paletteflash, PF_POISON)
 CVAR (Flag, pf_ice,			paletteflash, PF_ICE)
 CVAR (Flag, pf_hazard,		paletteflash, PF_HAZARD)
 
-CUSTOM_CVARD(Float, hud_scalefactor, 1, CVAR_ARCHIVE, "changes the hud scale")
-{
-	if (self < 0.36f) self = 0.36f;
-	else if (self > 1) self = 1;
-	else if (StatusBar)
-	{
-		StatusBar->SetScale();
-		setsizeneeded = true;
-	}
-}
-
 
 // Stretch status bar to full screen width?
 CUSTOM_CVAR (Int, st_scale, 0, CVAR_ARCHIVE)
@@ -129,14 +117,9 @@ CUSTOM_CVAR (Int, st_scale, 0, CVAR_ARCHIVE)
 		setsizeneeded = true;
 	}
 }
-CUSTOM_CVAR(Bool, hud_aspectscale, false, CVAR_ARCHIVE)
-{
-	if (StatusBar)
-	{
-		StatusBar->SetScale();
-		setsizeneeded = true;
-	}
-}
+
+EXTERN_CVAR(Float, hud_scalefactor)
+EXTERN_CVAR(Bool, hud_aspectscale)
 
 CVAR (Bool, crosshairon, true, CVAR_ARCHIVE);
 CVAR (Int, crosshair, 0, CVAR_ARCHIVE)
@@ -174,45 +157,45 @@ void V_DrawFrame(F2DDrawer* drawer, int left, int top, int width, int height, bo
 	if (!scalemode)
 	{
 		// Draw top and bottom sides.
-		p = TexMan.GetGameTextureByName(border->t);
+		p = TexMan.GetGameTextureByName(border->t.GetChars());
 		drawer->AddFlatFill(left, top - (int)p->GetDisplayHeight(), right, top, p, true);
-		p = TexMan.GetGameTextureByName(border->b);
+		p = TexMan.GetGameTextureByName(border->b.GetChars());
 		drawer->AddFlatFill(left, bottom, right, bottom + (int)p->GetDisplayHeight(), p, true);
 
 		// Draw left and right sides.
-		p = TexMan.GetGameTextureByName(border->l);
+		p = TexMan.GetGameTextureByName(border->l.GetChars());
 		drawer->AddFlatFill(left - (int)p->GetDisplayWidth(), top, left, bottom, p, true);
-		p = TexMan.GetGameTextureByName(border->r);
+		p = TexMan.GetGameTextureByName(border->r.GetChars());
 		drawer->AddFlatFill(right, top, right + (int)p->GetDisplayWidth(), bottom, p, true);
 
 		// Draw beveled corners.
-		DrawTexture(drawer, TexMan.GetGameTextureByName(border->tl), left - offset, top - offset, TAG_DONE);
-		DrawTexture(drawer, TexMan.GetGameTextureByName(border->tr), left + width, top - offset, TAG_DONE);
-		DrawTexture(drawer, TexMan.GetGameTextureByName(border->bl), left - offset, top + height, TAG_DONE);
-		DrawTexture(drawer, TexMan.GetGameTextureByName(border->br), left + width, top + height, TAG_DONE);
+		DrawTexture(drawer, TexMan.GetGameTextureByName(border->tl.GetChars()), left - offset, top - offset, TAG_DONE);
+		DrawTexture(drawer, TexMan.GetGameTextureByName(border->tr.GetChars()), left + width, top - offset, TAG_DONE);
+		DrawTexture(drawer, TexMan.GetGameTextureByName(border->bl.GetChars()), left - offset, top + height, TAG_DONE);
+		DrawTexture(drawer, TexMan.GetGameTextureByName(border->br.GetChars()), left + width, top + height, TAG_DONE);
 	}
 	else
 	{
 		// Draw top and bottom sides.
-		p = TexMan.GetGameTextureByName(border->t);
+		p = TexMan.GetGameTextureByName(border->t.GetChars());
 		drawer->AddFlatFill(left, top - (int)(p->GetDisplayHeight() / sh), right, top, p, -2);
-		p = TexMan.GetGameTextureByName(border->b);
+		p = TexMan.GetGameTextureByName(border->b.GetChars());
 		drawer->AddFlatFill(left, bottom, right, bottom + (int)(p->GetDisplayHeight() / sh), p, -2);
 
 		// Draw left and right sides.
-		p = TexMan.GetGameTextureByName(border->l);
+		p = TexMan.GetGameTextureByName(border->l.GetChars());
 		drawer->AddFlatFill(left - (int)(p->GetDisplayWidth() / sw), top, left, bottom, p, -2);
-		p = TexMan.GetGameTextureByName(border->r);
+		p = TexMan.GetGameTextureByName(border->r.GetChars());
 		drawer->AddFlatFill(right, top, right + (int)(p->GetDisplayWidth() / sw), bottom, p, -2);
 
 		// Draw beveled corners.
-		p = TexMan.GetGameTextureByName(border->tl);
+		p = TexMan.GetGameTextureByName(border->tl.GetChars());
 		drawer->AddFlatFill(left - (int)(p->GetDisplayWidth() / sw), top - (int)(p->GetDisplayHeight() / sh), left, top, p, -2);
-		p = TexMan.GetGameTextureByName(border->tr);
+		p = TexMan.GetGameTextureByName(border->tr.GetChars());
 		drawer->AddFlatFill(right, top - (int)(p->GetDisplayHeight() / sh), right + (int)(p->GetDisplayWidth() / sw), top, p, -2);
-		p = TexMan.GetGameTextureByName(border->bl);
+		p = TexMan.GetGameTextureByName(border->bl.GetChars());
 		drawer->AddFlatFill(left - (int)(p->GetDisplayWidth() / sw), bottom, left, bottom + (int)(p->GetDisplayHeight() / sh), p, -2);
-		p = TexMan.GetGameTextureByName(border->br);
+		p = TexMan.GetGameTextureByName(border->br.GetChars());
 		drawer->AddFlatFill(right, bottom, right + (int)(p->GetDisplayWidth() / sw), bottom + (int)(p->GetDisplayHeight() / sh), p, -2);
 	}
 }
@@ -249,6 +232,10 @@ void ST_LoadCrosshair(bool alwaysload)
 	if (num == 0)
 	{
 		num = crosshair;
+	}
+	if (num < 0)
+	{
+		num = 0;
 	}
 	ST_LoadCrosshair(num, alwaysload);
 }
@@ -563,14 +550,14 @@ void DBaseStatusBar::DoDrawAutomapHUD(int crdefault, int highlight)
 	if (!generic_ui)
 	{
 		// If the original font does not have accents this will strip them - but a fallback to the VGA font is not desirable here for such cases.
-		if (!font->CanPrint(GStrings("AM_MONSTERS")) || !font->CanPrint(GStrings("AM_SECRETS")) || !font->CanPrint(GStrings("AM_ITEMS"))) font2 = OriginalSmallFont;
+		if (!font->CanPrint(GStrings.GetString("AM_MONSTERS")) || !font->CanPrint(GStrings.GetString("AM_SECRETS")) || !font->CanPrint(GStrings.GetString("AM_ITEMS"))) font2 = OriginalSmallFont;
 	}
 
 	if (am_showtime)
 	{
 		sec = Tics2Seconds(primaryLevel->time);
 		textbuffer.Format("%02d:%02d:%02d", sec / 3600, (sec % 3600) / 60, sec % 60);
-		DrawText(twod, font, crdefault, vwidth - zerowidth * 8 - textdist, y, textbuffer, DTA_VirtualWidth, vwidth, DTA_VirtualHeight, vheight,
+		DrawText(twod, font, crdefault, vwidth - zerowidth * 8 - textdist, y, textbuffer.GetChars(), DTA_VirtualWidth, vwidth, DTA_VirtualHeight, vheight,
 			DTA_Monospace, EMonospacing::CellCenter, DTA_Spacing, zerowidth, DTA_KeepRatio, true, TAG_END);
 		y += fheight;
 	}
@@ -579,7 +566,7 @@ void DBaseStatusBar::DoDrawAutomapHUD(int crdefault, int highlight)
 	{
 		sec = Tics2Seconds(primaryLevel->totaltime);
 		textbuffer.Format("%02d:%02d:%02d", sec / 3600, (sec % 3600) / 60, sec % 60);
-		DrawText(twod, font, crdefault, vwidth - zerowidth * 8 - textdist, y, textbuffer, DTA_VirtualWidth, vwidth, DTA_VirtualHeight, vheight,
+		DrawText(twod, font, crdefault, vwidth - zerowidth * 8 - textdist, y, textbuffer.GetChars(), DTA_VirtualWidth, vwidth, DTA_VirtualHeight, vheight,
 			DTA_Monospace, EMonospacing::CellCenter, DTA_Spacing, zerowidth, DTA_KeepRatio, true, TAG_END);
 	}
 
@@ -588,23 +575,23 @@ void DBaseStatusBar::DoDrawAutomapHUD(int crdefault, int highlight)
 		y = 0;
 		if (am_showmonsters)
 		{
-			textbuffer.Format("%s\34%c %d/%d", GStrings("AM_MONSTERS"), crdefault + 65, primaryLevel->killed_monsters, primaryLevel->total_monsters);
-			DrawText(twod, font2, highlight, textdist, y, textbuffer, DTA_KeepRatio, true, DTA_VirtualWidth, vwidth, DTA_VirtualHeight, vheight, TAG_DONE);
+			textbuffer.Format("%s\34%c %d/%d", GStrings.GetString("AM_MONSTERS"), crdefault + 65, primaryLevel->killed_monsters, primaryLevel->total_monsters);
+			DrawText(twod, font2, highlight, textdist, y, textbuffer.GetChars(), DTA_KeepRatio, true, DTA_VirtualWidth, vwidth, DTA_VirtualHeight, vheight, TAG_DONE);
 			y += fheight;
 		}
 
 		if (am_showsecrets)
 		{
-			textbuffer.Format("%s\34%c %d/%d", GStrings("AM_SECRETS"), crdefault + 65, primaryLevel->found_secrets, primaryLevel->total_secrets);
-			DrawText(twod, font2, highlight, textdist, y, textbuffer, DTA_KeepRatio, true, DTA_VirtualWidth, vwidth, DTA_VirtualHeight, vheight, TAG_DONE);
+			textbuffer.Format("%s\34%c %d/%d", GStrings.GetString("AM_SECRETS"), crdefault + 65, primaryLevel->found_secrets, primaryLevel->total_secrets);
+			DrawText(twod, font2, highlight, textdist, y, textbuffer.GetChars(), DTA_KeepRatio, true, DTA_VirtualWidth, vwidth, DTA_VirtualHeight, vheight, TAG_DONE);
 			y += fheight;
 		}
 
 		// Draw item count
 		if (am_showitems)
 		{
-			textbuffer.Format("%s\34%c %d/%d", GStrings("AM_ITEMS"), crdefault + 65, primaryLevel->found_items, primaryLevel->total_items);
-			DrawText(twod, font2, highlight, textdist, y, textbuffer, DTA_KeepRatio, true, DTA_VirtualWidth, vwidth, DTA_VirtualHeight, vheight, TAG_DONE);
+			textbuffer.Format("%s\34%c %d/%d", GStrings.GetString("AM_ITEMS"), crdefault + 65, primaryLevel->found_items, primaryLevel->total_items);
+			DrawText(twod, font2, highlight, textdist, y, textbuffer.GetChars(), DTA_KeepRatio, true, DTA_VirtualWidth, vwidth, DTA_VirtualHeight, vheight, TAG_DONE);
 			y += fheight;
 		}
 
@@ -644,7 +631,7 @@ void DBaseStatusBar::DoDrawAutomapHUD(int crdefault, int highlight)
 	for (unsigned i = 0; i < numlines; i++)
 	{
 		int x = (vwidth - font->StringWidth(lines[i].Text)) / 2;
-		DrawText(twod, font, highlight, x, y, lines[i].Text, DTA_KeepRatio, true, DTA_VirtualWidth, vwidth, DTA_VirtualHeight, vheight, TAG_DONE);
+		DrawText(twod, font, highlight, x, y, lines[i].Text.GetChars(), DTA_KeepRatio, true, DTA_VirtualWidth, vwidth, DTA_VirtualHeight, vheight, TAG_DONE);
 		y += fheight;
 	}
 }
@@ -893,10 +880,10 @@ static FTextureID GetBorderTexture(FLevelLocals *Level)
 {
 	if (Level != nullptr && Level->info != nullptr && Level->info->BorderTexture.Len() != 0)
 	{
-		auto picnum = TexMan.CheckForTexture (Level->info->BorderTexture, ETextureType::Flat);
+		auto picnum = TexMan.CheckForTexture (Level->info->BorderTexture.GetChars(), ETextureType::Flat);
 		if (picnum.isValid()) return picnum;
 	}
-	return TexMan.CheckForTexture (gameinfo.BorderFlat, ETextureType::Flat);
+	return TexMan.CheckForTexture (gameinfo.BorderFlat.GetChars(), ETextureType::Flat);
 }
 
 //==========================================================================
@@ -975,7 +962,7 @@ void DBaseStatusBar::RefreshBackground () const
 
 		if (setblocks >= 10)
 		{
-			FGameTexture *p = TexMan.GetGameTextureByName(gameinfo.Border.b);
+			FGameTexture *p = TexMan.GetGameTextureByName(gameinfo.Border.b.GetChars());
 			if (p != NULL)
 			{
 				if (!ui_screenborder_classic_scaling)
@@ -1134,7 +1121,7 @@ void DBaseStatusBar::DrawLog ()
 		FFont *font = (generic_ui || log_vgafont)? NewSmallFont : SmallFont;
 
 		int linelen = hudwidth<640? Scale(hudwidth,9,10)-40 : 560;
-		auto lines = V_BreakLines (font, linelen, text[0] == '$'? GStrings(text.GetChars()+1) : text.GetChars());
+		auto lines = V_BreakLines (font, linelen, text[0] == '$'? GStrings.GetString(text.GetChars()+1) : text.GetChars());
 		int height = 20;
 
 		for (unsigned i = 0; i < lines.Size(); i++) height += font->GetHeight ();
@@ -1160,7 +1147,7 @@ void DBaseStatusBar::DrawLog ()
 		y+=10;
 		for (const FBrokenLines &line : lines)
 		{
-			DrawText(twod, font, CPlayer->SubtitleCounter? CR_CYAN : CR_UNTRANSLATED, x, y, line.Text,
+			DrawText(twod, font, CPlayer->SubtitleCounter? CR_CYAN : CR_UNTRANSLATED, x, y, line.Text.GetChars(),
 				DTA_KeepRatio, true,
 				DTA_VirtualWidth, hudwidth, DTA_VirtualHeight, hudheight, TAG_DONE);
 			y += font->GetHeight ();
@@ -1241,86 +1228,68 @@ void DBaseStatusBar::DrawTopStuff (EHudState state)
 	DrawConsistancy ();
 	DrawWaiting ();
 	if ((ShowLog && MustDrawLog(state)) || (inter_subtitles && CPlayer->SubtitleCounter > 0)) DrawLog ();
-
-	if (noisedebug)
-	{
-		S_NoiseDebug ();
-	}
 }
 
 
 void DBaseStatusBar::DrawConsistancy () const
 {
-	static bool firsttime = true;
-	int i;
-	char conbuff[64], *buff_p;
-
 	if (!netgame)
 		return;
 
-	buff_p = NULL;
-	for (i = 0; i < MAXPLAYERS; i++)
+	bool desync = false;
+	FString text = "Out of sync with:";
+	for (int i = 0; i < MAXPLAYERS; i++)
 	{
 		if (playeringame[i] && players[i].inconsistant)
 		{
-			if (buff_p == NULL)
-			{
-				strcpy (conbuff, "Out of sync with:");
-				buff_p = conbuff + 17;
-			}
-			*buff_p++ = ' ';
-			*buff_p++ = '1' + i;
-			*buff_p = 0;
+			desync = true;
+			text.AppendFormat(" %s (%d)", players[i].userinfo.GetName(10u), i + 1);
 		}
 	}
 
-	if (buff_p != NULL)
+	if (desync)
 	{
-		if (firsttime)
+		auto lines = V_BreakLines(SmallFont, twod->GetWidth() / CleanXfac - 40, text.GetChars());
+		const int height = SmallFont->GetHeight() * CleanYfac;
+		double y = 0.0;
+		for (auto& line : lines)
 		{
-			firsttime = false;
-			if (debugfile)
-			{
-				fprintf (debugfile, "%s as of tic %d (%d)\n", conbuff,
-					players[1-consoleplayer].inconsistant,
-					players[1-consoleplayer].inconsistant/ticdup);
-			}
+			DrawText(twod, SmallFont, CR_GREEN,
+				(twod->GetWidth() - SmallFont->StringWidth(line.Text) * CleanXfac) * 0.5,
+				y, line.Text.GetChars(), DTA_CleanNoMove, true, TAG_DONE);
+			y += height;
 		}
-		DrawText(twod, SmallFont, CR_GREEN,
-			(twod->GetWidth() - SmallFont->StringWidth (conbuff)*CleanXfac) / 2,
-			0, conbuff, DTA_CleanNoMove, true, TAG_DONE);
 	}
 }
 
 void DBaseStatusBar::DrawWaiting () const
 {
-	int i;
-	char conbuff[64], *buff_p;
-
 	if (!netgame)
 		return;
 
-	buff_p = NULL;
-	for (i = 0; i < MAXPLAYERS; i++)
+	FString text = "Waiting for:";
+	bool isWaiting = false;
+	for (int i = 0; i < MAXPLAYERS; i++)
 	{
 		if (playeringame[i] && players[i].waiting)
 		{
-			if (buff_p == NULL)
-			{
-				strcpy (conbuff, "Waiting for:");
-				buff_p = conbuff + 12;
-			}
-			*buff_p++ = ' ';
-			*buff_p++ = '1' + i;
-			*buff_p = 0;
+			isWaiting = true;
+			text.AppendFormat(" %s (%d)", players[i].userinfo.GetName(10u), i + 1);
 		}
 	}
 
-	if (buff_p != NULL)
+	if (isWaiting)
 	{
-		DrawText(twod, SmallFont, CR_ORANGE,
-			(twod->GetWidth() - SmallFont->StringWidth (conbuff)*CleanXfac) / 2,
-			SmallFont->GetHeight()*CleanYfac, conbuff, DTA_CleanNoMove, true, TAG_DONE);
+		auto lines = V_BreakLines(SmallFont, twod->GetWidth() / CleanXfac - 40, text.GetChars());
+		const int height = SmallFont->GetHeight() * CleanYfac;
+		double y = 0.0;
+		for (auto& line : lines)
+		{
+			DrawText(twod, SmallFont, CR_ORANGE,
+				(twod->GetWidth() - SmallFont->StringWidth(line.Text) * CleanXfac) * 0.5,
+				y, line.Text.GetChars(), DTA_CleanNoMove, true, TAG_DONE);
+			y += height;
+		}
 	}
 }
 
@@ -1398,7 +1367,7 @@ AActor *DBaseStatusBar::ValidateInvFirst (int numVisible) const
 	return nullptr;
 }
 
-uint32_t DBaseStatusBar::GetTranslation() const
+FTranslationID DBaseStatusBar::GetTranslation() const
 {
 	if (gameinfo.gametype & GAME_Raven)
 		return TRANSLATION(TRANSLATION_PlayersExtra, int(CPlayer - players));

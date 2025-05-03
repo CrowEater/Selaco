@@ -9,6 +9,16 @@ class PPrototype;
 struct ZCC_TreeNode;
 class PContainerType;
 
+// This is needed in common code, despite being Doom specific.
+enum EStateUseFlags
+{
+	SUF_ACTOR = 1,
+	SUF_OVERLAY = 2,
+	SUF_WEAPON = 4,
+	SUF_ITEM = 8,
+};
+
+
 // Symbol information -------------------------------------------------------
 
 class PTypeBase
@@ -44,7 +54,7 @@ class PSymbolType : public PSymbol
 {
 	DECLARE_CLASS(PSymbolType, PSymbol);
 public:
-	PType *Type;
+	PType *Type = nullptr;
 
 	PSymbolType(FName name, class PType *ty) : PSymbol(name), Type(ty) {}
 	PSymbolType() : PSymbol(NAME_None) {}
@@ -56,7 +66,7 @@ class PSymbolTreeNode : public PSymbol
 {
 	DECLARE_CLASS(PSymbolTreeNode, PSymbol);
 public:
-	struct ZCC_TreeNode *Node;
+	struct ZCC_TreeNode *Node = nullptr;
 
 	PSymbolTreeNode(FName name, struct ZCC_TreeNode *node) : PSymbol(name), Node(node) {}
 	PSymbolTreeNode() : PSymbol(NAME_None) {}
@@ -78,6 +88,7 @@ public:
 	uint32_t Flags;
 	int BitValue;
 	FString DeprecationMessage;
+	int mDefFileNo = 0;
 protected:
 	PField();
 };
@@ -136,11 +147,11 @@ public:
 		void *Pad;
 	};
 
-	PSymbolConstNumeric(FName name, PType *type=NULL) : PSymbolConst(name, type) {}
+	PSymbolConstNumeric(FName name, PType *type=nullptr) : PSymbolConst(name, type), Float(0) {}
 	PSymbolConstNumeric(FName name, PType *type, int val) : PSymbolConst(name, type), Value(val) {}
 	PSymbolConstNumeric(FName name, PType *type, unsigned int val) : PSymbolConst(name, type), Value((int)val) {}
 	PSymbolConstNumeric(FName name, PType *type, double val) : PSymbolConst(name, type), Float(val) {}
-	PSymbolConstNumeric() {}
+	PSymbolConstNumeric() : Float(0) {}
 };
 
 // A constant string value --------------------------------------------------
@@ -212,8 +223,8 @@ struct PSymbolTable
 	// a symbol with the same name is already in the table. This symbol is
 	// not copied and will be freed when the symbol table is destroyed.
 	PSymbol *AddSymbol (PSymbol *sym);
-	PField *AddField(FName name, PType *type, uint32_t flags, unsigned &Size, unsigned *Align = nullptr);
-	PField *AddNativeField(FName name, PType *type, size_t address, uint32_t flags, int bitvalue);
+	PField *AddField(FName name, PType *type, uint32_t flags, unsigned &Size, unsigned *Align = nullptr, int fileno = 0);
+	PField *AddNativeField(FName name, PType *type, size_t address, uint32_t flags, int bitvalue, int fileno = 0);
 	bool ReadFields(FSerializer &ar, void *addr, const char *TypeName) const;
 	void WriteFields(FSerializer &ar, const void *addr, const void *def = nullptr) const;
 

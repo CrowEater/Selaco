@@ -318,7 +318,7 @@ static void CheckLabel(PClassActor *obj, FStateLabel *slb, int useflag, FName st
 	auto state = slb->State;
 	if (state != nullptr)
 	{
-		if (intptr_t(state) <= 0xffff)
+		if (uintptr_t(state) <= 0xffff)
 		{
 			// can't do much here aside from printing a message and aborting.
 			I_Error("Bad state label %s in actor %s", slb->Label.GetChars(), obj->TypeName.GetChars());
@@ -433,12 +433,12 @@ void ParseScripts()
 		if (FScriptPosition::ErrorCounter > 0)
 		{
 			// Abort if the compiler produced any errors. Also do not compile further lumps, because they very likely miss some stuff.
-			I_Error("%d errors, %d warnings while compiling %s", FScriptPosition::ErrorCounter, FScriptPosition::WarnCounter, fileSystem.GetFileFullPath(lump).GetChars());
+			I_Error("%d errors, %d warnings while compiling %s", FScriptPosition::ErrorCounter, FScriptPosition::WarnCounter, fileSystem.GetFileFullPath(lump).c_str());
 		}
 		else if (FScriptPosition::WarnCounter > 0)
 		{
 			// If we got warnings, but no errors, print the information but continue.
-			Printf(TEXTCOLOR_ORANGE "%d warnings while compiling %s\n", FScriptPosition::WarnCounter, fileSystem.GetFileFullPath(lump).GetChars());
+			Printf(TEXTCOLOR_ORANGE "%d warnings while compiling %s\n", FScriptPosition::WarnCounter, fileSystem.GetFileFullPath(lump).c_str());
 		}
 
 	}
@@ -464,7 +464,22 @@ void LoadActors()
 
 	if (FScriptPosition::ErrorCounter > 0)
 	{
-		I_Error("%d errors while parsing DECORATE scripts", FScriptPosition::ErrorCounter);
+		// Check for mod files
+		int wi2 = fileSystem.GetFileContainer(370);
+		FString wadNames = "";
+		int wadCount = 0;
+		for (int x = wi2 + 2; x < fileSystem.GetNumWads(); x++) {
+			wadNames.AppendFormat("\t%s\n", fileSystem.GetWadName(x));
+			wadCount++;
+		}
+
+		if (wadNames.IsEmpty()) {
+			I_Error("%d errors while parsing DECORATE scripts", FScriptPosition::ErrorCounter);
+		}
+		else {
+			I_Error("%d errors while parsing DECORATE scripts\n\nCheck %d mods for updates, or try disabling mods by launching the game with -NOMODS\n\nMods: \n%s", FScriptPosition::ErrorCounter, wadCount, wadNames.GetChars());
+		}
+		
 	}
 	FScriptPosition::ResetErrorCounter();
 	// AllActorClasses hasn'T been set up yet.

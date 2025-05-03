@@ -6,6 +6,7 @@
 ** Copyright 1998-2009 Randy Heit
 ** Copyright (C) 2007-2012 Skulltag Development Team
 ** Copyright (C) 2007-2016 Zandronum Development Team
+** Copyright (C) 2017-2022 GZDoom Development Team
 ** All rights reserved.
 **
 ** Redistribution and use in source and binary forms, with or without
@@ -49,9 +50,11 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
+#include <stdexcept>
 #include <process.h>
 #include <time.h>
 #include <map>
+#include <codecvt>
 
 #include <stdarg.h>
 
@@ -61,6 +64,8 @@
 #include <richedit.h>
 #include <wincrypt.h>
 #include <shlwapi.h>
+
+#include <shellapi.h>
 
 #include "hardware.h"
 #include "printf.h"
@@ -75,13 +80,14 @@
 #include "i_input.h"
 #include "c_dispatch.h"
 
-#include "gameconfigfile.h"
 #include "v_font.h"
 #include "i_system.h"
 #include "bitmap.h"
 #include "cmdlib.h"
 #include "i_interface.h"
 #include "i_mainwindow.h"
+
+#include "launcherwindow.h"
 
 // MACROS ------------------------------------------------------------------
 
@@ -107,11 +113,8 @@ static HCURSOR CreateBitmapCursor(int xhot, int yhot, HBITMAP and_mask, HBITMAP 
 
 EXTERN_CVAR (Bool, queryiwad);
 // Used on welcome/IWAD screen.
-EXTERN_CVAR (Bool, disableautoload)
-EXTERN_CVAR (Bool, autoloadlights)
-EXTERN_CVAR (Bool, autoloadbrightmaps)
-EXTERN_CVAR (Bool, autoloadwidescreen)
 EXTERN_CVAR (Int, vid_preferbackend)
+EXTERN_CVAR(Bool, longsavemessages)
 
 extern HANDLE StdOut;
 extern bool FancyStdOut;
@@ -128,7 +131,7 @@ double PerfToSec, PerfToMillisec;
 
 UINT TimerPeriod;
 
-int sys_ostype = 0;
+const char* sys_ostype = "";
 
 // PRIVATE DATA DEFINITIONS ------------------------------------------------
 
@@ -168,12 +171,10 @@ void I_DetectOS(void)
 			if (info.dwMinorVersion == 0)
 			{
 				osname = (info.wProductType == VER_NT_WORKSTATION) ? "Vista" : "Server 2008";
-				sys_ostype = 2; // legacy OS
 			}
 			else if (info.dwMinorVersion == 1)
 			{
 				osname = (info.wProductType == VER_NT_WORKSTATION) ? "7" : "Server 2008 R2";
-				sys_ostype = 2; // supported OS
 			}
 			else if (info.dwMinorVersion == 2)	
 			{
@@ -181,12 +182,10 @@ void I_DetectOS(void)
 				// the highest version of Windows you support, which will also be the
 				// highest version of Windows this function returns.
 				osname = (info.wProductType == VER_NT_WORKSTATION) ? "8" : "Server 2012";
-				sys_ostype = 2; // supported OS
 			}
 			else if (info.dwMinorVersion == 3)
 			{
 				osname = (info.wProductType == VER_NT_WORKSTATION) ? "8.1" : "Server 2012 R2";
-				sys_ostype = 2; // supported OS
 			}
 			else if (info.dwMinorVersion == 4)
 			{
@@ -196,7 +195,6 @@ void I_DetectOS(void)
 		else if (info.dwMajorVersion == 10)
 		{
 			osname = (info.wProductType == VER_NT_WORKSTATION) ? (info.dwBuildNumber >= 22000 ? "11 (or higher)" : "10") : "Server 2016 (or higher)";
-			sys_ostype = 3; // modern OS
 		}
 		break;
 
@@ -209,6 +207,8 @@ void I_DetectOS(void)
 			osname,
 			info.dwMajorVersion, info.dwMinorVersion,
 			info.dwBuildNumber, info.szCSDVersion);
+
+	sys_ostype = osname;
 }
 
 //==========================================================================
@@ -278,97 +278,38 @@ void CalculateCPUSpeed()
 
 static void PrintToStdOut(const char *cpt, HANDLE StdOut)
 {
-	if (StdOut == nullptr && !con_debugoutput)
-		return;
+	const char* srcp = cpt;
+	FString printData = "";
+	bool terminal = FancyStdOut;
 
-	wchar_t wbuf[256];
-	int bpos = 0;
-
-	const uint8_t *cptr = (const uint8_t*)cpt;
-
-	auto outputIt = [&]()
+	while (*srcp != 0)
 	{
-		wbuf[bpos] = 0;
-		if (con_debugoutput)
+		if (*srcp == 0x1c && terminal)
 		{
-			OutputDebugStringW(wbuf);
-		}
-		if (StdOut != nullptr)
-		{
-			// Convert back to UTF-8.
-			DWORD bytes_written;
-			if (!FancyStdOut)
+			srcp += 1;
+			const uint8_t* scratch = (const uint8_t*)srcp; // GCC does not like direct casting of the parameter.
+			EColorRange range = V_ParseFontColor(scratch, CR_UNTRANSLATED, CR_YELLOW);
+			srcp = (char*)scratch;
+			if (range != CR_UNDEFINED)
 			{
-				FString conout(wbuf);
-				WriteFile(StdOut, conout.GetChars(), (DWORD)conout.Len(), &bytes_written, NULL);
-			}
-			else
-			{
-				WriteConsoleW(StdOut, wbuf, bpos, &bytes_written, nullptr);
+				PalEntry color = V_LogColorFromColorRange(range);
+				printData.AppendFormat("\033[38;2;%u;%u;%um", color.r, color.g, color.b);
 			}
 		}
-		bpos = 0;
-	};
-
-	while (int chr = GetCharFromString(cptr))
-	{
-		if ((chr == TEXTCOLOR_ESCAPE && bpos != 0) || bpos == 255)
+		else if (*srcp != 0x1c && *srcp != 0x1d && *srcp != 0x1e && *srcp != 0x1f)
 		{
-			outputIt();
-		}
-		if (chr != TEXTCOLOR_ESCAPE)
-		{
-			if (chr >= 0x1D && chr <= 0x1F)
-			{ // The bar characters, most commonly used to indicate map changes
-				chr = 0x2550;	// Box Drawings Double Horizontal
-			}
-			wbuf[bpos++] = chr;
+			printData += *srcp++;
 		}
 		else
 		{
-			EColorRange range = V_ParseFontColor(cptr, CR_UNTRANSLATED, CR_YELLOW);
-
-			if (range != CR_UNDEFINED)
-			{
-				// Change the color of future text added to the control.
-				PalEntry color = V_LogColorFromColorRange(range);
-				if (StdOut != NULL && FancyStdOut)
-				{
-					// Unfortunately, we are pretty limited here: There are only
-					// eight basic colors, and each comes in a dark and a bright
-					// variety.
-					float h, s, v, r, g, b;
-					int attrib = 0;
-
-					RGBtoHSV(color.r / 255.f, color.g / 255.f, color.b / 255.f, &h, &s, &v);
-					if (s != 0)
-					{ // color
-						HSVtoRGB(&r, &g, &b, h, 1, 1);
-						if (r == 1)  attrib  = FOREGROUND_RED;
-						if (g == 1)  attrib |= FOREGROUND_GREEN;
-						if (b == 1)  attrib |= FOREGROUND_BLUE;
-						if (v > 0.6) attrib |= FOREGROUND_INTENSITY;
-					}
-					else
-					{ // gray
-						     if (v < 0.33) attrib = FOREGROUND_INTENSITY;
-						else if (v < 0.90) attrib = FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE;
-						else			   attrib = FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE | FOREGROUND_INTENSITY;
-					}
-					SetConsoleTextAttribute(StdOut, (WORD)attrib);
-				}
-			}
+			if (srcp[1] != 0) srcp += 2;
+			else break;
 		}
 	}
-	if (bpos != 0)
-	{
-		outputIt();
-	}
-
-	if (StdOut != NULL && FancyStdOut)
-	{ // Set text back to gray, in case it was changed.
-		SetConsoleTextAttribute(StdOut, FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE);
-	}
+	DWORD bytes_written;
+	WriteFile(StdOut, printData.GetChars(), (DWORD)printData.Len(), &bytes_written, NULL);
+	if (terminal) 
+		WriteFile(StdOut, "\033[0m", 4, &bytes_written, NULL);
 }
 
 void I_PrintStr(const char *cp)
@@ -406,141 +347,15 @@ static void SetQueryIWad(HWND dialog)
 
 //==========================================================================
 //
-// IWADBoxCallback
-//
-// Dialog proc for the IWAD selector.
-//
-//==========================================================================
-
-BOOL CALLBACK IWADBoxCallback(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
-{
-	HWND ctrl;
-	int i;
-
-	switch (message)
-	{
-	case WM_INITDIALOG:
-		// Add our program name to the window title
-		{
-			WCHAR label[256];
-			FString newlabel;
-
-			GetWindowTextW(hDlg, label, countof(label));
-			FString alabel(label);
-			newlabel.Format(GAMENAME " %s: %s", GetVersionString(), alabel.GetChars());
-			auto wlabel = newlabel.WideString();
-			SetWindowTextW(hDlg, wlabel.c_str());
-		}
-
-		// [SP] Upstreamed from Zandronum
-		char	szString[256];
-
-		// Check the current video settings.
-		SendDlgItemMessage( hDlg, IDC_WELCOME_FULLSCREEN, BM_SETCHECK, vid_fullscreen ? BST_CHECKED : BST_UNCHECKED, 0 );
-		switch (vid_preferbackend)
-		{
-		case 1:
-			SendDlgItemMessage( hDlg, IDC_WELCOME_VULKAN2, BM_SETCHECK, BST_CHECKED, 0 );
-			break;
-		case 2:
-			SendDlgItemMessage( hDlg, IDC_WELCOME_VULKAN3, BM_SETCHECK, BST_CHECKED, 0 );
-			break;
-#ifdef HAVE_GLES2
-		case 3:
-			SendDlgItemMessage( hDlg, IDC_WELCOME_VULKAN4, BM_SETCHECK, BST_CHECKED, 0 );
-			break;
-#endif			
-		default:
-			SendDlgItemMessage( hDlg, IDC_WELCOME_VULKAN1, BM_SETCHECK, BST_CHECKED, 0 );
-			break;
-		}
-
-
-		// [SP] This is our's
-		SendDlgItemMessage( hDlg, IDC_WELCOME_NOAUTOLOAD, BM_SETCHECK, disableautoload ? BST_CHECKED : BST_UNCHECKED, 0 );
-		SendDlgItemMessage( hDlg, IDC_WELCOME_LIGHTS, BM_SETCHECK, autoloadlights ? BST_CHECKED : BST_UNCHECKED, 0 );
-		SendDlgItemMessage( hDlg, IDC_WELCOME_BRIGHTMAPS, BM_SETCHECK, autoloadbrightmaps ? BST_CHECKED : BST_UNCHECKED, 0 );
-		SendDlgItemMessage( hDlg, IDC_WELCOME_WIDESCREEN, BM_SETCHECK, autoloadwidescreen ? BST_CHECKED : BST_UNCHECKED, 0 );
-
-		// Set up our version string.
-		sprintf(szString, "Version %s.", GetVersionString());
-		SetDlgItemTextA (hDlg, IDC_WELCOME_VERSION, szString);
-
-		// Populate the list with all the IWADs found
-		ctrl = GetDlgItem(hDlg, IDC_IWADLIST);
-		for (i = 0; i < NumWads; i++)
-		{
-			const char *filepart = strrchr(WadList[i].Path, '/');
-			if (filepart == NULL)
-				filepart = WadList[i].Path;
-			else
-				filepart++;
-
-			FString work;
-			if (*filepart) work.Format("%s (%s)", WadList[i].Name.GetChars(), filepart);
-			else work = WadList[i].Name.GetChars();
-			std::wstring wide = work.WideString();
-			SendMessage(ctrl, LB_ADDSTRING, 0, (LPARAM)wide.c_str());
-			SendMessage(ctrl, LB_SETITEMDATA, i, (LPARAM)i);
-		}
-		SendMessage(ctrl, LB_SETCURSEL, DefaultWad, 0);
-		SetFocus(ctrl);
-		// Set the state of the "Don't ask me again" checkbox
-		ctrl = GetDlgItem(hDlg, IDC_DONTASKIWAD);
-		SendMessage(ctrl, BM_SETCHECK, queryiwad ? BST_UNCHECKED : BST_CHECKED, 0);
-		// Make sure the dialog is in front. If SHIFT was pressed to force it visible,
-		// then the other window will normally be on top.
-		SetForegroundWindow(hDlg);
-		break;
-
-	case WM_COMMAND:
-		if (LOWORD(wParam) == IDCANCEL)
-		{
-			EndDialog (hDlg, -1);
-		}
-		else if (LOWORD(wParam) == IDOK ||
-			(LOWORD(wParam) == IDC_IWADLIST && HIWORD(wParam) == LBN_DBLCLK))
-		{
-			SetQueryIWad(hDlg);
-			// [SP] Upstreamed from Zandronum
-			vid_fullscreen = SendDlgItemMessage( hDlg, IDC_WELCOME_FULLSCREEN, BM_GETCHECK, 0, 0 ) == BST_CHECKED;
-#ifdef HAVE_GLES2
-			if (SendDlgItemMessage(hDlg, IDC_WELCOME_VULKAN4, BM_GETCHECK, 0, 0) == BST_CHECKED)
-				vid_preferbackend = 3;
-			else 
-#endif
-			if (SendDlgItemMessage(hDlg, IDC_WELCOME_VULKAN3, BM_GETCHECK, 0, 0) == BST_CHECKED)
-				vid_preferbackend = 2;
-			else if (SendDlgItemMessage(hDlg, IDC_WELCOME_VULKAN2, BM_GETCHECK, 0, 0) == BST_CHECKED)
-				vid_preferbackend = 1;
-			else if (SendDlgItemMessage(hDlg, IDC_WELCOME_VULKAN1, BM_GETCHECK, 0, 0) == BST_CHECKED)
-				vid_preferbackend = 0;
-
-			// [SP] This is our's.
-			disableautoload = SendDlgItemMessage( hDlg, IDC_WELCOME_NOAUTOLOAD, BM_GETCHECK, 0, 0 ) == BST_CHECKED;
-			autoloadlights = SendDlgItemMessage( hDlg, IDC_WELCOME_LIGHTS, BM_GETCHECK, 0, 0 ) == BST_CHECKED;
-			autoloadbrightmaps = SendDlgItemMessage( hDlg, IDC_WELCOME_BRIGHTMAPS, BM_GETCHECK, 0, 0 ) == BST_CHECKED;
-			autoloadwidescreen = SendDlgItemMessage( hDlg, IDC_WELCOME_WIDESCREEN, BM_GETCHECK, 0, 0 ) == BST_CHECKED;
-			ctrl = GetDlgItem (hDlg, IDC_IWADLIST);
-			EndDialog(hDlg, SendMessage (ctrl, LB_GETCURSEL, 0, 0));
-		}
-		break;
-	}
-	return FALSE;
-}
-
-//==========================================================================
-//
 // I_PickIWad
 //
 // Open a dialog to pick the IWAD, if there is more than one found.
 //
 //==========================================================================
 
-int I_PickIWad(WadStuff *wads, int numwads, bool showwin, int defaultiwad)
+int I_PickIWad(WadStuff *wads, int numwads, bool showwin, int defaultiwad, int& autoloadflags, FString &extraArgs)
 {
 	int vkey;
-
 	if (stricmp(queryiwad_key, "shift") == 0)
 	{
 		vkey = VK_SHIFT;
@@ -555,12 +370,7 @@ int I_PickIWad(WadStuff *wads, int numwads, bool showwin, int defaultiwad)
 	}
 	if (showwin || (vkey != 0 && GetAsyncKeyState(vkey)))
 	{
-		WadList = wads;
-		NumWads = numwads;
-		DefaultWad = defaultiwad;
-
-		return (int)DialogBox(g_hInst, MAKEINTRESOURCE(IDD_IWADDIALOG),
-			(HWND)mainwindow.GetHandle(), (DLGPROC)IWADBoxCallback);
+		return LauncherWindow::ExecModal(wads, numwads, defaultiwad, &autoloadflags, &extraArgs);
 	}
 	return defaultiwad;
 }
@@ -820,7 +630,7 @@ void DestroyCustomCursor()
 //
 //==========================================================================
 
-bool I_WriteIniFailed()
+bool I_WriteIniFailed(const char* filename)
 {
 	char *lpMsgBuf;
 	FString errortext;
@@ -835,7 +645,7 @@ bool I_WriteIniFailed()
 		0,
 		NULL 
 	);
-	errortext.Format ("The config file %s could not be written:\n%s", GameConfig->GetPathName(), lpMsgBuf);
+	errortext.Format ("The config file %s could not be written:\n%s", filename, lpMsgBuf);
 	LocalFree (lpMsgBuf);
 	return MessageBoxA(mainwindow.GetHandle(), errortext.GetChars(), GAMENAME " configuration not saved", MB_ICONEXCLAMATION | MB_RETRYCANCEL) == IDRETRY;
 }
@@ -912,37 +722,6 @@ FString I_GetLongPathName(const FString &shortpath)
 	return longpath;
 }
 
-#ifdef _USING_V110_SDK71_
-//==========================================================================
-//
-// _stat64i32
-//
-// Work around an issue where stat() function doesn't work 
-// with Windows XP compatible toolset.
-// It uses GetFileInformationByHandleEx() which requires Windows Vista.
-//
-//==========================================================================
-
-int _wstat64i32(const wchar_t *path, struct _stat64i32 *buffer)
-{
-	WIN32_FILE_ATTRIBUTE_DATA data;
-	if(!GetFileAttributesExW(path, GetFileExInfoStandard, &data))
-		return -1;
-
-	buffer->st_ino = 0;
-	buffer->st_mode = ((data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) ? S_IFDIR : S_IFREG)|
-	                  ((data.dwFileAttributes & FILE_ATTRIBUTE_READONLY) ? S_IREAD : S_IREAD|S_IWRITE);
-	buffer->st_dev = buffer->st_rdev = 0;
-	buffer->st_nlink = 1;
-	buffer->st_uid = 0;
-	buffer->st_gid = 0;
-	buffer->st_size = data.nFileSizeLow;
-	buffer->st_atime = (*(uint64_t*)&data.ftLastAccessTime) / 10000000 - 11644473600LL;
-	buffer->st_mtime = (*(uint64_t*)&data.ftLastWriteTime) / 10000000 - 11644473600LL;
-	buffer->st_ctime = (*(uint64_t*)&data.ftCreationTime) / 10000000 - 11644473600LL;
-	return 0;
-}
-#endif
 
 struct NumaNode
 {
@@ -1016,3 +795,47 @@ void I_SetThreadNumaNode(std::thread &thread, int numaNode)
 		SetThreadAffinityMask(handle, (DWORD_PTR)numaNodes[numaNode].affinityMask);
 	}
 }
+
+FString I_GetCWD()
+{
+	auto len = GetCurrentDirectoryW(0, nullptr);
+	TArray<wchar_t> curdir(len + 1, true);
+	if (!GetCurrentDirectoryW(len + 1, curdir.Data()))
+	{
+		return "";
+	}
+	FString returnv(curdir.Data());
+	FixPathSeperator(returnv);
+	return returnv;
+}
+
+bool I_ChDir(const char* path)
+{
+	return SetCurrentDirectoryW(WideString(path).c_str());
+}
+
+
+void I_OpenShellFolder(const char* infolder)
+{
+	auto len = GetCurrentDirectoryW(0, nullptr);
+	TArray<wchar_t> curdir(len + 1, true);
+	if (!GetCurrentDirectoryW(len + 1, curdir.Data()))
+	{
+		Printf("Unable to retrieve current directory\n");
+	}
+	else if (SetCurrentDirectoryW(WideString(infolder).c_str()))
+	{
+		if (longsavemessages)
+			Printf("Opening folder: %s\n", infolder);
+		ShellExecuteW(NULL, L"open", L"explorer.exe", L".", NULL, SW_SHOWNORMAL);
+		SetCurrentDirectoryW(curdir.Data());
+	}
+	else
+	{
+		if (longsavemessages)
+			Printf("Unable to open directory '%s\n", infolder);
+		else
+			Printf("Unable to open requested directory\n");
+	}
+}
+

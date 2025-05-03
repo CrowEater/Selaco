@@ -43,6 +43,7 @@
 #include "serializer.h"
 #include "animations.h"
 #include "texturemanager.h"
+#include "image.h"
 
 // MACROS ------------------------------------------------------------------
 
@@ -61,14 +62,6 @@ static FRandom pr_animatepictures ("AnimatePics");
 
 void FTextureAnimator::DeleteAll()
 {
-	for (unsigned i = 0; i < mAnimations.Size(); i++)
-	{
-		if (mAnimations[i] != NULL)
-		{
-			M_Free(mAnimations[i]);
-			mAnimations[i] = NULL;
-		}
-	}
 	mAnimations.Clear();
 
 	for (unsigned i = 0; i < mSwitchDefs.Size(); i++)
@@ -80,15 +73,6 @@ void FTextureAnimator::DeleteAll()
 		}
 	}
 	mSwitchDefs.Clear();
-
-	for (unsigned i = 0; i < mAnimatedDoors.Size(); i++)
-	{
-		if (mAnimatedDoors[i].TextureFrames != NULL)
-		{
-			delete[] mAnimatedDoors[i].TextureFrames;
-			mAnimatedDoors[i].TextureFrames = NULL;
-		}
-	}
 	mAnimatedDoors.Clear();
 }
 
@@ -101,22 +85,22 @@ void FTextureAnimator::DeleteAll()
 //
 //==========================================================================
 
-FAnimDef *FTextureAnimator::AddAnim (FAnimDef *anim)
+FAnimDef *FTextureAnimator::AddAnim (FAnimDef& anim)
 {
 	// Search for existing duplicate.
-	for (unsigned int i = 0; i < mAnimations.Size(); ++i)
-	{
-		if (mAnimations[i]->BasePic == anim->BasePic)
-		{
-			// Found one!
-			M_Free (mAnimations[i]);
-			mAnimations[i] = anim;
-			return anim;
-		}
+	uint16_t * index = mAnimationIndices.CheckKey(anim.BasePic);
+
+	if(index)
+	{	// Found one!
+		mAnimations[*index] = anim;
+		return &mAnimations[*index];
 	}
-	// Didn't find one, so add it at the end.
-	mAnimations.Push (anim);
-	return anim;
+	else
+	{	// Didn't find one, so add it at the end.
+		mAnimationIndices.Insert(anim.BasePic, mAnimations.Size());
+		mAnimations.Push (anim);
+		return &mAnimations.Last();
+	}
 }
 
 //==========================================================================
@@ -132,19 +116,20 @@ FAnimDef *FTextureAnimator::AddSimpleAnim (FTextureID picnum, int animcount, uin
 {
 	if (TexMan.AreTexturesCompatible(picnum, picnum + (animcount - 1)))
 	{
-		FAnimDef *anim = (FAnimDef *)M_Malloc (sizeof(FAnimDef));
-		anim->CurFrame = 0;
-		anim->BasePic = picnum;
-		anim->NumFrames = animcount;
-		anim->AnimType = FAnimDef::ANIM_Forward;
-		anim->bDiscrete = false;
-		anim->SwitchTime = 0;
-		anim->Frames[0].SpeedMin = speedmin;
-		anim->Frames[0].SpeedRange = speedrange;
-		anim->Frames[0].FramePic = anim->BasePic;
+		FAnimDef anim;
+		anim.CurFrame = 0;
+		anim.BasePic = picnum;
+		anim.NumFrames = animcount;
+		anim.AnimType = FAnimDef::ANIM_Forward;
+		anim.bDiscrete = false;
+		anim.SwitchTime = 0;
+		anim.Frames = (FAnimDef::FAnimFrame*)ImageArena.Alloc(sizeof(FAnimDef::FAnimFrame));
+		anim.Frames[0].SpeedMin = speedmin;
+		anim.Frames[0].SpeedRange = speedrange;
+		anim.Frames[0].FramePic = anim.BasePic;
 		return AddAnim (anim);
 	}
-	return NULL;
+	return nullptr;
 }
 
 //==========================================================================
@@ -157,14 +142,15 @@ FAnimDef *FTextureAnimator::AddSimpleAnim (FTextureID picnum, int animcount, uin
 
 FAnimDef *FTextureAnimator::AddComplexAnim (FTextureID picnum, const TArray<FAnimDef::FAnimFrame> &frames)
 {
-	FAnimDef *anim = (FAnimDef *)M_Malloc (sizeof(FAnimDef) + (frames.Size()-1) * sizeof(frames[0]));
-	anim->BasePic = picnum;
-	anim->NumFrames = frames.Size();
-	anim->CurFrame = 0;
-	anim->AnimType = FAnimDef::ANIM_Forward;
-	anim->bDiscrete = true;
-	anim->SwitchTime = 0;
-	memcpy (&anim->Frames[0], &frames[0], frames.Size() * sizeof(frames[0]));
+	FAnimDef anim;
+	anim.BasePic = picnum;
+	anim.NumFrames = frames.Size();
+	anim.CurFrame = 0;
+	anim.AnimType = FAnimDef::ANIM_Forward;
+	anim.bDiscrete = true;
+	anim.SwitchTime = 0;
+	anim.Frames = (FAnimDef::FAnimFrame*)ImageArena.Alloc(frames.Size() * sizeof(frames[0]));
+	memcpy (&anim.Frames[0], &frames[0], frames.Size() * sizeof(frames[0]));
 	return AddAnim (anim);
 }
 
@@ -218,9 +204,9 @@ void FTextureAnimator::InitAnimated (void)
 	int lumpnum = fileSystem.CheckNumForName ("ANIMATED");
 	if (lumpnum != -1)
 	{
-		FileData animatedlump = fileSystem.ReadFile (lumpnum);
+		auto animatedlump = fileSystem.ReadFile (lumpnum);
 		int animatedlen = fileSystem.FileLength(lumpnum);
-		const uint8_t *animdefs = (const uint8_t *)animatedlump.GetMem();
+		auto animdefs = animatedlump.bytes();
 		const uint8_t *anim_p;
 		FTextureID pic1, pic2;
 		int animtype;
@@ -339,6 +325,10 @@ void FTextureAnimator::InitAnimDefs ()
 			else if (sc.Compare ("warp") || sc.Compare ("warp2"))
 			{
 				ParseWarp(sc);
+			}
+			else if (sc.Compare("canvastexture"))
+			{
+				ParseCanvasTexture(sc);
 			}
 			else if (sc.Compare ("cameratexture"))
 			{
@@ -698,6 +688,21 @@ void FTextureAnimator::ParseWarp(FScanner &sc)
 	}
 }
 
+
+//==========================================================================
+//
+// ParseCameraTexture
+//
+// Parses a canvas texture definition
+//
+//==========================================================================
+
+void FTextureAnimator::ParseCanvasTexture(FScanner& sc)
+{
+	// This is currently identical to camera textures.
+	ParseCameraTexture(sc);
+}
+
 //==========================================================================
 //
 // ParseCameraTexture
@@ -719,9 +724,9 @@ void FTextureAnimator::ParseCameraTexture(FScanner &sc)
 	width = sc.Number;
 	sc.MustGetNumber ();
 	height = sc.Number;
-	FTextureID picnum = TexMan.CheckForTexture (picname, ETextureType::Flat, texflags);
+	FTextureID picnum = TexMan.CheckForTexture (picname.GetChars(), ETextureType::Flat, texflags);
 	auto canvas = new FCanvasTexture(width, height);
-	FGameTexture *viewer = MakeGameTexture(canvas, picname, ETextureType::Wall);
+	FGameTexture *viewer = MakeGameTexture(canvas, picname.GetChars(), ETextureType::Wall);
 	if (picnum.Exists())
 	{
 		auto oldtex = TexMan.GameTexture(picnum);
@@ -736,6 +741,17 @@ void FTextureAnimator::ParseCameraTexture(FScanner &sc)
 		fitheight = height;
 		// [GRB] No need for oldtex
 		TexMan.AddGameTexture (viewer);
+	}
+	if (sc.GetString())
+	{
+		if (sc.Compare ("hdr"))
+		{
+			canvas->SetHDR(true);
+		}
+		else
+		{
+			sc.UnGet();
+		}
 	}
 	if (sc.GetString())
 	{
@@ -783,14 +799,14 @@ void FTextureAnimator::FixAnimations ()
 
 	for (i = 0; i < mAnimations.Size(); ++i)
 	{
-		FAnimDef *anim = mAnimations[i];
+		const FAnimDef *anim = &mAnimations[i];
 		if (!anim->bDiscrete)
 		{
 			bool nodecals;
 			bool noremap = false;
 			const char *name;
 
-			name = TexMan.GameTexture(anim->BasePic)->GetName();
+			name = TexMan.GameTexture(anim->BasePic)->GetName().GetChars();
 			nodecals = TexMan.GameTexture(anim->BasePic)->allowNoDecals();
 			for (j = 0; j < anim->NumFrames; ++j)
 			{
@@ -870,7 +886,7 @@ void FTextureAnimator::ParseAnimatedDoor(FScanner &sc)
 	}
 	if (!error)
 	{
-		anim.TextureFrames = new FTextureID[frames.Size()];
+		anim.TextureFrames = (FTextureID*)ImageArena.Alloc(sizeof(FTextureID) * frames.Size());
 		memcpy (anim.TextureFrames, &frames[0], sizeof(FTextureID) * frames.Size());
 		anim.NumTextureFrames = frames.Size();
 		mAnimatedDoors.Push (anim);
@@ -915,6 +931,104 @@ void FAnimDef::SetSwitchTime (uint64_t mstime)
 	}
 }
 
+static void AdvanceFrame(uint16_t &frame, uint8_t &AnimType, const FAnimDef &anim)
+{
+	switch (AnimType)
+	{
+	default:
+	case FAnimDef::ANIM_Forward:
+		frame = (frame + 1) % anim.NumFrames;
+		break;
+
+	case FAnimDef::ANIM_Backward:
+		if (frame == 0)
+		{
+			frame = anim.NumFrames - 1;
+		}
+		else
+		{
+			frame--;
+		}
+		break;
+	case FAnimDef::ANIM_Random:
+		// select a random frame other than the current one
+		if (anim.NumFrames > 1)
+		{
+			uint16_t rndFrame = (uint16_t)pr_animatepictures(anim.NumFrames - 1);
+			if(rndFrame == frame) rndFrame++;
+			frame = rndFrame % anim.NumFrames;
+		}
+		break;
+
+	case FAnimDef::ANIM_OscillateUp:
+		frame = frame + 1;
+		assert(frame < anim.NumFrames);
+		if (frame == anim.NumFrames - 1)
+		{
+			AnimType = FAnimDef::ANIM_OscillateDown;
+		}
+		break;
+
+	case FAnimDef::ANIM_OscillateDown:
+		frame = frame - 1;
+		if (frame == 0)
+		{
+			AnimType = FAnimDef::ANIM_OscillateUp;
+		}
+		break;
+	}
+}
+
+constexpr double msPerTic = 1'000.0 / TICRATE;
+
+bool FTextureAnimator::InitStandaloneAnimation(FStandaloneAnimation &animInfo, FTextureID tex, uint32_t curTic)
+{
+	animInfo.ok = false;
+	uint16_t * index = mAnimationIndices.CheckKey(tex);
+	if(!index) return false;
+	FAnimDef * anim = &mAnimations[*index];
+
+	animInfo.ok = true;
+	animInfo.AnimIndex = *index;
+	animInfo.CurFrame = 0;
+	animInfo.SwitchTic = curTic;
+	animInfo.AnimType = (anim->AnimType == FAnimDef::ANIM_OscillateDown) ? FAnimDef::ANIM_OscillateUp : anim->AnimType;
+	uint32_t time = anim->Frames[0].SpeedMin;
+	if(anim->Frames[0].SpeedRange != 0)
+	{
+		time += pr_animatepictures(anim->Frames[0].SpeedRange);
+	}
+	animInfo.SwitchTic += time / msPerTic;
+	return true;
+}
+
+FTextureID FTextureAnimator::UpdateStandaloneAnimation(FStandaloneAnimation &animInfo, double curTic)
+{
+	if(!animInfo.ok) return nullptr;
+	auto &anim = mAnimations[animInfo.AnimIndex];
+	if(animInfo.SwitchTic <= curTic)
+	{
+		uint16_t frame = animInfo.CurFrame;
+		uint16_t speedframe = anim.bDiscrete ? frame : 0;
+		while(animInfo.SwitchTic <= curTic)
+		{
+			AdvanceFrame(frame, animInfo.AnimType, anim);
+
+			if(anim.bDiscrete) speedframe = frame;
+
+			uint32_t time = anim.Frames[speedframe].SpeedMin;
+			if(anim.Frames[speedframe].SpeedRange != 0)
+			{
+				time += pr_animatepictures(anim.Frames[speedframe].SpeedRange);
+			}
+
+			animInfo.SwitchTic += time / msPerTic;
+		}
+		animInfo.CurFrame = frame;
+	}
+	return anim.bDiscrete ? anim.Frames[animInfo.CurFrame].FramePic : (anim.BasePic + animInfo.CurFrame);
+}
+
 
 //==========================================================================
 //
@@ -928,7 +1042,7 @@ void FTextureAnimator::UpdateAnimations (uint64_t mstime)
 {
 	for (unsigned int j = 0; j < mAnimations.Size(); ++j)
 	{
-		FAnimDef *anim = mAnimations[j];
+		FAnimDef *anim = &mAnimations[j];
 
 		// If this is the first time through R_UpdateAnimations, just
 		// initialize the anim's switch time without actually animating.
@@ -940,50 +1054,7 @@ void FTextureAnimator::UpdateAnimations (uint64_t mstime)
 		{ // Multiple frames may have passed since the last time calling
 		  // R_UpdateAnimations, so be sure to loop through them all.
 
-			switch (anim->AnimType)
-			{
-			default:
-			case FAnimDef::ANIM_Forward:
-				anim->CurFrame = (anim->CurFrame + 1) % anim->NumFrames;
-				break;
-
-			case FAnimDef::ANIM_Backward:
-				if (anim->CurFrame == 0)
-				{
-					anim->CurFrame = anim->NumFrames - 1;
-				}
-				else
-				{
-					anim->CurFrame -= 1;
-				}
-				break;
-
-			case FAnimDef::ANIM_Random:
-				// select a random frame other than the current one
-				if (anim->NumFrames > 1)
-				{
-					uint16_t rndFrame = (uint16_t)pr_animatepictures(anim->NumFrames - 1);
-					if (rndFrame >= anim->CurFrame) rndFrame++;
-					anim->CurFrame = rndFrame;
-				}
-				break;
-
-			case FAnimDef::ANIM_OscillateUp:
-				anim->CurFrame = anim->CurFrame + 1;
-				if (anim->CurFrame >= anim->NumFrames - 1)
-				{
-					anim->AnimType = FAnimDef::ANIM_OscillateDown;
-				}
-				break;
-
-			case FAnimDef::ANIM_OscillateDown:
-				anim->CurFrame = anim->CurFrame - 1;
-				if (anim->CurFrame == 0)
-				{
-					anim->AnimType = FAnimDef::ANIM_OscillateUp;
-				}
-				break;
-			}
+			AdvanceFrame(anim->CurFrame, anim->AnimType, *anim);
 			anim->SetSwitchTime (mstime);
 		}
 

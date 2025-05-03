@@ -41,6 +41,8 @@ class ImageScrollerDescriptor : MenuDescriptor native
 	native double textScale;
 	native bool mAnimatedTransition;
 	native bool mAnimated;
+	native bool mDontBlur;
+	native bool mDontDim;
 	native int virtWidth, virtHeight;
 }
 
@@ -154,7 +156,7 @@ class ImageScrollerMenu : Menu
 	{
 		if (AnimatedTransition)
 		{
-			start = MSTime() * (120. / 1000.);
+			start = MSTimeF() * (120. / 1000.);
 			length = 30;
 			dir = animtype;
 			previous = current;
@@ -168,8 +170,10 @@ class ImageScrollerMenu : Menu
 		mParentMenu = parent;
 		index = 0;
 		mDesc = desc;
-		AnimatedTransition = desc.mAnimatedTransition;
-		Animated = desc.mAnimated;
+		AnimatedTransition = mDesc.mAnimatedTransition;
+		Animated = mDesc.mAnimated;
+		DontBlur = mDesc.mDontBlur;
+		DontDim = mDesc.mDontDim;
 		current = mDesc.mItems[0];
 		current.onStartPage();
 		previous = null;
@@ -247,7 +251,7 @@ class ImageScrollerMenu : Menu
 
 	private bool DrawTransition()
 	{
-		double now = MSTime() * (120. / 1000.);
+		double now = MSTimeF() * (120. / 1000.);
 		if (now < start + length)
 		{
 			double factor = screen.GetWidth()/2;

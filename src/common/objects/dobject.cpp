@@ -42,6 +42,7 @@
 #include "types.h"
 #include "i_time.h"
 #include "printf.h"
+#include "maps.h"
 
 //==========================================================================
 //
@@ -316,6 +317,8 @@ void DObject::Release()
 
 void DObject::Destroy ()
 {
+	RemoveFromNetwork();
+
 	// We cannot call the VM during shutdown because all the needed data has been or is in the process of being deleted.
 	if (PClass::bVMOperational)
 	{
@@ -327,6 +330,7 @@ void DObject::Destroy ()
 	}
 	OnDestroy();
 	ObjectFlags = (ObjectFlags & ~OF_Fixed) | OF_EuthanizeMe;
+	GC::WriteBarrier(this);
 }
 
 DEFINE_ACTION_FUNCTION(DObject, Destroy)
@@ -342,39 +346,66 @@ DEFINE_ACTION_FUNCTION(DObject, Destroy)
 //
 //==========================================================================
 
+template<typename M>
+static void PropagateMarkMap(M *map)
+{
+	TMapIterator<typename M::KeyType,DObject*> it(*map);
+	typename M::Pair * p;
+	while(it.NextPair(p))
+	{
+		GC::Mark(&p->Value);
+	}
+}
+
 size_t DObject::PropagateMark()
 {
 	const PClass *info = GetClass();
 	if (!PClass::bShutdown)
 	{
-		const size_t *offsets = info->FlatPointers;
-		if (offsets == NULL)
+		if (info->FlatPointers == nullptr)
 		{
-			const_cast<PClass *>(info)->BuildFlatPointers();
-			offsets = info->FlatPointers;
-		}
-		while (*offsets != ~(size_t)0)
-		{
-			GC::Mark((DObject **)((uint8_t *)this + *offsets));
-			offsets++;
+			info->BuildFlatPointers();
+			assert(info->FlatPointers);
 		}
 
-		offsets = info->ArrayPointers;
-		if (offsets == NULL)
+		for(size_t i = 0; i < info->FlatPointersSize; i++)
 		{
-			const_cast<PClass *>(info)->BuildArrayPointers();
-			offsets = info->ArrayPointers;
+			GC::Mark((DObject **)((uint8_t *)this + info->FlatPointers[i].first));
 		}
-		while (*offsets != ~(size_t)0)
+
+		if (info->ArrayPointers == nullptr)
 		{
-			auto aray = (TArray<DObject*>*)((uint8_t *)this + *offsets);
+			info->BuildArrayPointers();
+			assert(info->ArrayPointers);
+		}
+
+		for(size_t i = 0; i < info->ArrayPointersSize; i++)
+		{
+			auto aray = (TArray<DObject*>*)((uint8_t *)this + info->ArrayPointers[i].first);
 			for (auto &p : *aray)
 			{
 				GC::Mark(&p);
 			}
-			offsets++;
 		}
 
+		if (info->MapPointers == nullptr)
+		{
+			info->BuildMapPointers();
+			assert(info->MapPointers);
+		}
+
+		for(size_t i = 0; i < info->MapPointersSize; i++)
+		{
+			PMap * type = static_cast<PMap*>(info->MapPointers[i].second);
+			if(type->KeyType->RegType == REGT_STRING)
+			{ // FString,DObject*
+				PropagateMarkMap((ZSMap<FString,DObject*>*)((uint8_t *)this + info->MapPointers[i].first));
+			}
+			else
+			{ // uint32_t,DObject*
+				PropagateMarkMap((ZSMap<uint32_t,DObject*>*)((uint8_t *)this + info->MapPointers[i].first));
+			}
+		}
 		return info->Size;
 	}
 	return 0;
@@ -386,46 +417,116 @@ size_t DObject::PropagateMark()
 //
 //==========================================================================
 
-size_t DObject::PointerSubstitution (DObject *old, DObject *notOld)
+template<typename M>
+static void MapPointerSubstitution(M *map, size_t &changed, DObject *old, DObject *notOld, const bool shouldSwap)
+{
+	TMapIterator<typename M::KeyType, DObject*> it(*map);
+	typename M::Pair * p;
+	while(it.NextPair(p))
+	{
+		if (p->Value == old)
+		{
+			if (shouldSwap)
+			{
+				p->Value = notOld;
+				changed++;
+			}
+			else if (p->Value != nullptr)
+			{
+				p->Value = nullptr;
+				changed++;
+			}
+		}
+	}
+}
+
+size_t DObject::PointerSubstitution (DObject *old, DObject *notOld, bool nullOnFail)
 {
 	const PClass *info = GetClass();
-	const size_t *offsets = info->FlatPointers;
 	size_t changed = 0;
-	if (offsets == NULL)
+	if (info->FlatPointers == nullptr)
 	{
-		const_cast<PClass *>(info)->BuildFlatPointers();
-		offsets = info->FlatPointers;
-	}
-	while (*offsets != ~(size_t)0)
-	{
-		if (*(DObject **)((uint8_t *)this + *offsets) == old)
-		{
-			*(DObject **)((uint8_t *)this + *offsets) = notOld;
-			changed++;
-		}
-		offsets++;
+		info->BuildFlatPointers();
+		assert(info->FlatPointers);
 	}
 
-	offsets = info->ArrayPointers;
-	if (offsets == NULL)
+	for(size_t i = 0; i < info->FlatPointersSize; i++)
 	{
-		const_cast<PClass *>(info)->BuildArrayPointers();
-		offsets = info->ArrayPointers;
+		size_t offset = info->FlatPointers[i].first;
+		auto& obj = *(DObject**)((uint8_t*)this + offset);
+
+		if (obj == old)
+		{
+			// If a pointer's type is null, that means it's native and anything native is safe to swap
+			// around due to its inherit type expansiveness.
+			if (info->FlatPointers[i].second == nullptr || notOld->IsKindOf(info->FlatPointers[i].second->PointedClass()))
+			{
+				obj = notOld;
+				changed++;
+			}
+			else if (nullOnFail && obj != nullptr)
+			{
+				obj = nullptr;
+				changed++;
+			}
+		}
 	}
-	while (*offsets != ~(size_t)0)
+
+	if (info->ArrayPointers == nullptr)
 	{
-		auto aray = (TArray<DObject*>*)((uint8_t *)this + *offsets);
+		info->BuildArrayPointers();
+		assert(info->ArrayPointers);
+	}
+
+	for(size_t i = 0; i < info->ArrayPointersSize; i++)
+	{
+		const bool isType = notOld->IsKindOf(static_cast<PObjectPointer*>(info->ArrayPointers[i].second->ElementType)->PointedClass());
+
+		if (!isType && !nullOnFail)
+			continue;
+
+		auto aray = (TArray<DObject*>*)((uint8_t*)this + info->ArrayPointers[i].first);
 		for (auto &p : *aray)
 		{
 			if (p == old)
 			{
-				p = notOld;
-				changed++;
+				if (isType)
+				{
+					p = notOld;
+					changed++;
+				}
+				else if (p != nullptr)
+				{
+					p = nullptr;
+					changed++;
+				}
 			}
 		}
-		offsets++;
 	}
 
+	if (info->MapPointers == nullptr)
+	{
+		info->BuildMapPointers();
+		assert(info->MapPointers);
+	}
+
+	for(size_t i = 0; i < info->MapPointersSize; i++)
+	{
+		PMap * type = static_cast<PMap*>(info->MapPointers[i].second);
+
+		const bool isType = notOld->IsKindOf(static_cast<PObjectPointer*>(type->ValueType)->PointedClass());
+		if (!isType && !nullOnFail)
+			continue;
+
+		if(type->KeyType->RegType == REGT_STRING)
+		{ // FString,DObject*
+			MapPointerSubstitution((ZSMap<FString,DObject*>*)((uint8_t *)this + info->MapPointers[i].first), changed, old, notOld, isType);
+		}
+		else
+		{ // uint32_t,DObject*
+			MapPointerSubstitution((ZSMap<uint32_t,DObject*>*)((uint8_t *)this + info->MapPointers[i].first), changed, old, notOld, isType);
+		}
+	}
 
 	return changed;
 }
@@ -471,8 +572,15 @@ void DObject::Serialize(FSerializer &arc)
 
 	SerializeFlag("justspawned", OF_JustSpawned);
 	SerializeFlag("spawned", OF_Spawned);
-
+	SerializeFlag("networked", OF_Networked);
+		
 	ObjectFlags |= OF_SerialSuccess;
+
+	if (arc.isReading() && (ObjectFlags & OF_Networked))
+	{
+		ClearNetworkID();
+		EnableNetworking(true);
+	}
 }
 
 void DObject::CheckIfSerialized () const
@@ -486,7 +594,6 @@ void DObject::CheckIfSerialized () const
 			StaticType()->TypeName.GetChars());
 	}
 }
-
 
 DEFINE_ACTION_FUNCTION(DObject, MSTime)
 {
@@ -515,5 +622,166 @@ void *DObject::ScriptVar(FName field, PType *type)
 	}
 	// This is only for internal use so I_Error is fine.
 	I_Error("Variable %s not found in %s\n", field.GetChars(), cls->TypeName.GetChars());
-	return nullptr;
 }
+
+
+//==========================================================================
+//
+//
+//
+//==========================================================================
+
+void NetworkEntityManager::InitializeNetworkEntities()
+{
+	if (!s_netEntities.Size())
+		s_netEntities.AppendFill(nullptr, NetIDStart); // Allocate the first 0-8 slots for the world and clients.
+}
+
+// Clients need special handling since they always go in slots 1 - MAXPLAYERS.
+void NetworkEntityManager::SetClientNetworkEntity(DObject* mo, const unsigned int playNum)
+{
+	// If resurrecting, we need to swap the corpse's position with the new pawn's
+	// position so it's no longer considered the client's body.
+	const uint32_t id = ClientNetIDStart + playNum;
+	DObject* const oldBody = s_netEntities[id];
+	if (oldBody != nullptr)
+	{
+		if (oldBody == mo)
+			return;
+
+		const uint32_t curID = mo->GetNetworkID();
+
+		s_netEntities[curID] = oldBody;
+		oldBody->ClearNetworkID();
+		oldBody->SetNetworkID(curID);
+
+		mo->ClearNetworkID();
+	}
+	else
+	{
+		RemoveNetworkEntity(mo); // Free up its current id.
+	}
+
+	s_netEntities[id] = mo;
+	mo->SetNetworkID(id);
+}
+
+void NetworkEntityManager::AddNetworkEntity(DObject* const ent)
+{
+	if (ent->IsNetworked())
+		return;
+
+	// Slot 0 is reserved for the world.
+	// Clients go in the first 1 - MAXPLAYERS slots
+	// Everything else is first come first serve.
+	uint32_t id = WorldNetID;
+	if (s_openNetIDs.Size())
+	{
+		s_openNetIDs.Pop(id);
+		s_netEntities[id] = ent;
+	}
+	else
+	{
+		id = s_netEntities.Push(ent);
+	}
+
+	ent->SetNetworkID(id);
+}
+
+void NetworkEntityManager::RemoveNetworkEntity(DObject* const ent)
+{
+	if (!ent->IsNetworked())
+		return;
+
+	const uint32_t id = ent->GetNetworkID();
+	if (id == WorldNetID)
+		return;
+
+	assert(s_netEntities[id] == ent);
+	if (id >= NetIDStart)
+		s_openNetIDs.Push(id);
+	s_netEntities[id] = nullptr;
+	ent->ClearNetworkID();
+}
+
+DObject* NetworkEntityManager::GetNetworkEntity(const uint32_t id)
+{
+	if (id == WorldNetID || id >= s_netEntities.Size())
+		return nullptr;
+
+	return s_netEntities[id];
+}
+
+//==========================================================================
+//
+//
+//
+//==========================================================================
+
+void DObject::SetNetworkID(const uint32_t id)
+{
+	if (!IsNetworked())
+	{
+		ObjectFlags |= OF_Networked;
+		_networkID = id;
+	}
+}
+
+void DObject::ClearNetworkID()
+{
+	ObjectFlags &= ~OF_Networked;
+	_networkID = NetworkEntityManager::WorldNetID;
+}
+
+void DObject::EnableNetworking(const bool enable)
+{
+	if (enable)
+		NetworkEntityManager::AddNetworkEntity(this);
+	else
+		NetworkEntityManager::RemoveNetworkEntity(this);
+}
+
+void DObject::RemoveFromNetwork()
+{
+	NetworkEntityManager::RemoveNetworkEntity(this);
+}
+
+static unsigned int GetNetworkID(DObject* const self)
+{
+	return self->GetNetworkID();
+}
+
+DEFINE_ACTION_FUNCTION_NATIVE(DObject, GetNetworkID, GetNetworkID)
+{
+	PARAM_SELF_PROLOGUE(DObject);
+
+	ACTION_RETURN_INT(self->GetNetworkID());
+}
+
+static void EnableNetworking(DObject* const self, const bool enable)
+{
+	self->EnableNetworking(enable);
+}
+
+DEFINE_ACTION_FUNCTION_NATIVE(DObject, EnableNetworking, EnableNetworking)
+{
+	PARAM_SELF_PROLOGUE(DObject);
+	PARAM_BOOL(enable);
+
+	self->EnableNetworking(enable);
+	return 0;
+}
+
+static DObject* GetNetworkEntity(const unsigned int id)
+{
+	return NetworkEntityManager::GetNetworkEntity(id);
+}
+
+DEFINE_ACTION_FUNCTION_NATIVE(DObject, GetNetworkEntity, GetNetworkEntity)
+{
+	PARAM_PROLOGUE;
+	PARAM_UINT(id);
+
+	ACTION_RETURN_OBJECT(NetworkEntityManager::GetNetworkEntity(id));
+}
+

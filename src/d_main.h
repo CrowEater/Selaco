@@ -86,6 +86,7 @@ struct FIWADInfo
 	int StartupType = FStartupInfo::DefaultStartup;		// alternate startup type
 	FString MapInfo;		// Base mapinfo to load
 	bool nokeyboardcheats = false;		// disable keyboard cheats
+	bool SkipBexStringsIfLanguage = false;
 	TArray<FString> Load;	// Wads to be loaded with this one.
 	TArray<FString> Lumps;	// Lump names for identification
 	TArray<FString> DeleteLumps;	// Lumps which must be deleted from the directory.
@@ -128,13 +129,13 @@ class FIWadManager
 	void ParseIWadInfo(const char *fn, const char *data, int datasize, FIWADInfo *result = nullptr);
 	int ScanIWAD (const char *iwad);
 	int CheckIWADInfo(const char *iwad);
-	int IdentifyVersion (TArray<FString> &wadfiles, const char *iwad, const char *zdoom_wad, const char *optional_wad);
+	int IdentifyVersion (std::vector<std::string>& wadfiles, const char *iwad, const char *zdoom_wad, const char *optional_wad);
 	void CollectSearchPaths();
 	void AddIWADCandidates(const char *dir);
 	void ValidateIWADs();
 public:
 	FIWadManager(const char *fn, const char *fnopt);
-	const FIWADInfo *FindIWAD(TArray<FString> &wadfiles, const char *iwad, const char *basewad, const char *optionalwad);
+	const FIWADInfo *FindIWAD(std::vector<std::string>& wadfiles, const char *iwad, const char *basewad, const char *optionalwad);
 	const FString *GetAutoname(unsigned int num) const
 	{
 		if (num < mIWadInfos.Size()) return &mIWadInfos[num].Autoname;
@@ -149,7 +150,11 @@ public:
 
 };
 
+#ifndef NO_SWRENDERER
 EXTERN_CVAR(Int, vid_rendermode)
+#else
+constexpr int vid_rendermode = 4;
+#endif
 
 inline bool V_IsHardwareRenderer()
 {
@@ -160,5 +165,7 @@ inline bool V_IsTrueColor()
 {
 	return vid_rendermode == 1 || vid_rendermode == 4;
 }
+
+bool CheckCheatmode(bool printmsg = true, bool sponly = false);
 
 #endif

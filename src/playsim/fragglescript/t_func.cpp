@@ -54,6 +54,8 @@
 #include "s_music.h"
 #include "texturemanager.h"
 
+using namespace FileSys;
+
 static FRandom pr_script("FScript");
 
 // functions. FParser::SF_ means Script Function not, well.. heh, me
@@ -349,7 +351,7 @@ static FSoundID T_FindSound(const char * name)
 	char buffer[40];
 	FSoundID so=S_FindSound(name);
 
-	if (so>0) return so;
+	if (so.isvalid()) return so;
 
 	// Now it gets dirty!
 
@@ -364,9 +366,9 @@ static FSoundID T_FindSound(const char * name)
 		if (fileSystem.CheckNumForName(buffer, ns_sounds)<0) mysnprintf(buffer, countof(buffer), "DS%.35s", name);
 	}
 
-	int id = S_AddSound(name, buffer);
+	FSoundID id = S_AddSound(name, buffer);
 	soundEngine->HashSounds();
-	return FSoundID(id);
+	return id;
 }
 
 
@@ -557,7 +559,7 @@ void FParser::SF_Include(void)
 	{
 		if(t_argv[0].type == svt_string)
 		{
-			strncpy(tempstr, t_argv[0].string, 8);
+			strncpy(tempstr, t_argv[0].string.GetChars(), 8);
 			tempstr[8]=0;
 		}
 		else
@@ -827,7 +829,7 @@ void FParser::SF_Spawn(void)
 {
 	DVector3 pos;
 	PClassActor *pclass;
-	DAngle angle = 0.;
+	DAngle angle = nullAngle;
 	
 	if (CheckArgs(3))
 	{
@@ -853,7 +855,7 @@ void FParser::SF_Spawn(void)
 		
 		if(t_argc >= 4)
 		{
-			angle = floatvalue(t_argv[3]);
+			angle = DAngle::fromDeg(floatvalue(t_argv[3]));
 		}
 		
 		t_return.type = svt_mobj;
@@ -1013,7 +1015,7 @@ void FParser::SF_ObjAngle(void)
 		mo = Script->trigger;
 	}
 
-	t_return.setDouble(mo ? mo->Angles.Yaw.Degrees : 0.);
+	t_return.setDouble(mo ? mo->Angles.Yaw.Degrees() : 0.);
 }
 
 
@@ -1217,7 +1219,7 @@ void FParser::SF_PushThing(void)
 		AActor * mo = actorvalue(t_argv[0]);
 		if(!mo) return;
 	
-		DAngle angle = floatvalue(t_argv[1]);
+		DAngle angle = DAngle::fromDeg(floatvalue(t_argv[1]));
 		double force = floatvalue(t_argv[2]);
 		mo->Thrust(angle, force);
 	}
@@ -1364,7 +1366,7 @@ void FParser::SF_PointToAngle(void)
 		double x2 = floatvalue(t_argv[2]);
 		double y2 = floatvalue(t_argv[3]);
 		
-		t_return.setDouble(DVector2(x2 - x1, y2 - y1).Angle().Normalized360().Degrees);
+		t_return.setDouble(DVector2(x2 - x1, y2 - y1).Angle().Normalized360().Degrees());
 	}
 }
 
@@ -1415,15 +1417,15 @@ void FParser::SF_SetCamera(void)
 			return;         // nullptr check
 		}
 		
-		angle = t_argc < 2 ? newcamera->Angles.Yaw : floatvalue(t_argv[1]);
+		angle = t_argc < 2 ? newcamera->Angles.Yaw : DAngle::fromDeg(floatvalue(t_argv[1]));
 
-		newcamera->specialf1 = newcamera->Angles.Yaw.Degrees;
+		newcamera->specialf1 = newcamera->Angles.Yaw.Degrees();
 		newcamera->specialf2 = newcamera->Z();
 		double z = t_argc < 3 ? newcamera->Sector->floorplane.ZatPoint(newcamera) + 41 : floatvalue(t_argv[2]);
 		newcamera->SetOrigin(newcamera->PosAtZ(z), false);
 		newcamera->Angles.Yaw = angle;
-		if (t_argc < 4) newcamera->Angles.Pitch = 0.;
-		else newcamera->Angles.Pitch = clamp(floatvalue(t_argv[3]), -50., 50.) * (20. / 32.);
+		if (t_argc < 4) newcamera->Angles.Pitch = nullAngle;
+		else newcamera->Angles.Pitch = DAngle::fromDeg(clamp(floatvalue(t_argv[3]), -50., 50.) * (20. / 32.));
 		player->camera=newcamera;
 		newcamera->renderflags |= RF_NOINTERPOLATEVIEW;
 	}
@@ -1445,7 +1447,7 @@ void FParser::SF_ClearCamera(void)
 	if (cam)
 	{
 		player->camera=player->mo;
-		cam->Angles.Yaw = cam->specialf1;
+		cam->Angles.Yaw = DAngle::fromDeg(cam->specialf1);
 		cam->SetZ(cam->specialf2);
 	}
 
@@ -1867,7 +1869,7 @@ void FParser::SF_FloorTexture(void)
 		if(t_argc > 1)
 		{
 			int i = -1;
-			FTextureID picnum = TexMan.GetTextureID(t_argv[1].string, ETextureType::Flat, FTextureManager::TEXMAN_Overridable);
+			FTextureID picnum = TexMan.GetTextureID(t_argv[1].string.GetChars(), ETextureType::Flat, FTextureManager::TEXMAN_Overridable);
 			
 			// set all sectors with tag
 			auto itr = Level->GetSectorTagIterator(tagnum);
@@ -1957,7 +1959,7 @@ void FParser::SF_CeilingTexture(void)
 		if(t_argc > 1)
 		{
 			int i = -1;
-			FTextureID picnum = TexMan.GetTextureID(t_argv[1].string, ETextureType::Flat, FTextureManager::TEXMAN_Overridable);
+			FTextureID picnum = TexMan.GetTextureID(t_argv[1].string.GetChars(), ETextureType::Flat, FTextureManager::TEXMAN_Overridable);
 			
 			// set all sectors with tag
 			auto itr = Level->GetSectorTagIterator(tagnum);
@@ -2227,7 +2229,7 @@ void FParser::SF_SetLineTexture(void)
 		}
 		else // and an improved legacy version
 		{ 
-			FTextureID picnum = TexMan.GetTextureID(t_argv[1].string, ETextureType::Wall, FTextureManager::TEXMAN_Overridable);
+			FTextureID picnum = TexMan.GetTextureID(t_argv[1].string.GetChars(), ETextureType::Wall, FTextureManager::TEXMAN_Overridable);
 			side = !!intvalue(t_argv[2]); 
 			int sections = intvalue(t_argv[3]); 
 			
@@ -2712,7 +2714,7 @@ void FParser::SF_MoveCamera(void)
 		double targetheight = floatvalue(t_argv[2]);
 		double movespeed = floatvalue(t_argv[3]);
 		DVector3 campos = cam->Pos();
-		DVector3 targpos = DVector3(target->Pos(), targetheight);
+		DVector3 targpos = DVector3(target->Pos().XY(), targetheight);
 		DVector3 movement = targpos - campos;
 		double movelen = movement.Length();
 
@@ -2732,14 +2734,14 @@ void FParser::SF_MoveCamera(void)
 		}
 		else finishedmove = true;
 
-		DAngle targetangle = DAngle(floatvalue(t_argv[4])).Normalized360();
+		DAngle targetangle = DAngle::fromDeg(floatvalue(t_argv[4])).Normalized360();
 		if (cam->Angles.Yaw != targetangle)
 		{
-			DAngle anglespeed = floatvalue(t_argv[5]);
+			DAngle anglespeed = DAngle::fromDeg(floatvalue(t_argv[5]));
 			DAngle anglenow = targetangle;
 			const DAngle diffangle = deltaangle(cam->Angles.Yaw, targetangle);
 
-			if (movespeed > 0 && anglespeed == 0.)
+			if (movespeed > 0 && anglespeed == nullAngle)
 			{
 				if (!finishedmove)
 				{
@@ -2749,7 +2751,7 @@ void FParser::SF_MoveCamera(void)
 			}
 			else
 			{
-				if (diffangle > 0)
+				if (diffangle > nullAngle)
 				{
 					anglenow = (cam->Angles.Yaw + anglespeed).Normalized360();
 				}
@@ -2758,7 +2760,7 @@ void FParser::SF_MoveCamera(void)
 					anglenow = (cam->Angles.Yaw - anglespeed).Normalized360();
 				}
 				const DAngle diffangle2 = deltaangle(anglenow, targetangle);
-				if (diffangle.Degrees * diffangle2.Degrees <= 0)
+				if (diffangle.Degrees() * diffangle2.Degrees() <= 0)
 				{
 					anglenow = targetangle;
 					finishedangle = true;
@@ -2912,7 +2914,7 @@ void FParser::SF_SpawnExplosion()
 		{
 			spawn->ClearCounters();
 			t_return.value.i = spawn->SetState(spawn->FindState(NAME_Death));
-			if(spawn->DeathSound) S_Sound (spawn, CHAN_BODY, 0, spawn->DeathSound, 1, ATTN_NORM);
+			if(spawn->DeathSound.isvalid()) S_Sound (spawn, CHAN_BODY, 0, spawn->DeathSound, 1, ATTN_NORM);
 		}
 	}
 }
@@ -3307,7 +3309,7 @@ void FParser::SF_LineAttack()
 		mo = actorvalue(t_argv[0]);
 		damage = intvalue(t_argv[2]);
 
-		angle = floatvalue(t_argv[1]);
+		angle = DAngle::fromDeg(floatvalue(t_argv[1]));
 		slope = P_AimLineAttack(mo, angle, MISSILERANGE);
 
 		P_LineAttack(mo, angle, MISSILERANGE, slope, damage, NAME_Hitscan, NAME_BulletPuff);

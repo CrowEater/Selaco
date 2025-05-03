@@ -39,23 +39,24 @@ class FHWModelRenderer : public FModelRenderer
 {
 	friend class FModelVertexBuffer;
 	int modellightindex = -1;
+	int boneIndexBase = -1;
 	HWDrawInfo *di;
 	FRenderState &state;
 public:
 	FHWModelRenderer(HWDrawInfo *d, FRenderState &st, int mli) : modellightindex(mli), di(d), state(st)
 	{}
 	ModelRendererType GetType() const override { return GLModelRendererType; }
-	void BeginDrawModel(FRenderStyle style, FSpriteModelFrame *smf, const VSMatrix &objectToWorldMatrix, bool mirrored) override;
-	void EndDrawModel(FRenderStyle style, FSpriteModelFrame *smf) override;
+	void BeginDrawModel(FRenderStyle style, int smf_flags, const VSMatrix &objectToWorldMatrix, bool mirrored) override;
+	void EndDrawModel(FRenderStyle style, int smf_flags) override;
 	IModelVertexBuffer *CreateVertexBuffer(bool needindex, bool singleframe) override;
 	VSMatrix GetViewToWorldMatrix() override;
-	void BeginDrawHUDModel(FRenderStyle style, const VSMatrix &objectToWorldMatrix, bool mirrored) override;
-	void EndDrawHUDModel(FRenderStyle style) override;
+	void BeginDrawHUDModel(FRenderStyle style, const VSMatrix &objectToWorldMatrix, bool mirrored, int smf_flags) override;
+	void EndDrawHUDModel(FRenderStyle style, int smf_flags) override;
 	void SetInterpolation(double interpolation) override;
-	void SetMaterial(FGameTexture *skin, bool clampNoFilter, int translation) override;
+	void SetMaterial(FGameTexture *skin, bool clampNoFilter, FTranslationID translation) override;
 	void DrawArrays(int start, int count) override;
 	void DrawElements(int numIndices, size_t offset) override;
-	void SetupFrame(FModel *model, unsigned int frame1, unsigned int frame2, unsigned int size) override;
+	int SetupFrame(FModel *model, unsigned int frame1, unsigned int frame2, unsigned int size, const TArray<VSMatrix>& bones, int boneStartIndex) override;
 
 };
 

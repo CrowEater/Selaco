@@ -61,6 +61,7 @@
 
 #include "printf.h"
 
+#include "engineerrors.h"
 #include "version.h"
 #include "i_sound.h"
 #include "stats.h"
@@ -79,6 +80,64 @@
 #include "bitmap.h"
 #include "cmdlib.h"
 #include "i_interface.h"
+
+
+//TODO maybe move this code to a separate cpp file, so that there isn't code duplication between the win32 and posix backends
+static void PSR_FindEndBlock(FScanner &sc)
+{
+	int depth = 1;
+	do
+	{
+		if(sc.CheckToken('}'))
+			--depth;
+		else if(sc.CheckToken('{'))
+			++depth;
+		else
+			sc.MustGetAnyToken();
+	}
+	while(depth);
+}
+
+static TArray<FString> ParseSteamRegistry(const char* path)
+{
+	TArray<FString> result;
+	FScanner sc;
+	if (sc.OpenFile(path))
+	{
+		sc.SetCMode(true);
+
+		sc.MustGetToken(TK_StringConst);
+		sc.MustGetToken('{');
+		// Get a list of possible install directories.
+		while(sc.GetToken() && sc.TokenType != '}')
+		{
+			sc.TokenMustBe(TK_StringConst);
+			sc.MustGetToken('{');
+
+			while(sc.GetToken() && sc.TokenType != '}')
+			{
+				sc.TokenMustBe(TK_StringConst);
+				FString key(sc.String);
+				if(key.CompareNoCase("path") == 0)
+				{
+					sc.MustGetToken(TK_StringConst);
+					result.Push(FString(sc.String) + "/steamapps/common");
+					PSR_FindEndBlock(sc);
+					break;
+				}
+				else if(sc.CheckToken('{'))
+				{
+					PSR_FindEndBlock(sc);
+				}
+				else
+				{
+					sc.MustGetToken(TK_StringConst);
+				}
+			}
+		}
+	}
+	return result;
+}
 
 //==========================================================================
 //
@@ -144,12 +203,33 @@ TArray<FString> I_GetGogPaths()
 		result.Push(path);	// directly in install folder
 	}
 
+	// Look for Doom I Enhanced
+	gamepath = gogregistrypath + L"\\2015545325";
+	if (QueryPathKey(HKEY_LOCAL_MACHINE, gamepath.c_str(), L"Path", path))
+	{
+		result.Push(path + "/DOOM_Data/StreamingAssets");	// in a subdirectory
+	}
+
 	// Look for Doom II
 	gamepath = gogregistrypath + L"\\1435848814";
 	if (QueryPathKey(HKEY_LOCAL_MACHINE, gamepath.c_str(), L"Path", path))
 	{
 		result.Push(path + "/doom2");	// in a subdirectory
 		// If direct support for the Master Levels is ever added, they are in path + /master/wads
+	}
+
+	// Look for Doom II Enhanced
+	gamepath = gogregistrypath + L"\\1426071866";
+	if (QueryPathKey(HKEY_LOCAL_MACHINE, gamepath.c_str(), L"Path", path))
+	{
+		result.Push(path + "/DOOM II_Data/StreamingAssets");	// in a subdirectory
+	}
+
+	// Look for Doom + Doom II
+	gamepath = gogregistrypath + L"\\1413291984";
+	if (QueryPathKey(HKEY_LOCAL_MACHINE, gamepath.c_str(), L"Path", path))
+	{
+		result.Push(path);	// directly in install folder
 	}
 
 	// Look for Final Doom
@@ -219,24 +299,49 @@ TArray<FString> I_GetSteamPath()
 		"hexen/base",
 		"hexen deathkings of the dark citadel/base",
 		"ultimate doom/base",
+		"ultimate doom/base/doom2",                          // 2024 Update
+		"ultimate doom/base/tnt",                            // 2024 Update
+		"ultimate doom/base/plutonia",                       // 2024 Update
 		"DOOM 3 BFG Edition/base/wads",
 		"Strife",
-		"Ultimate Doom/rerelease/DOOM_Data/StreamingAssets",
-		"Doom 2/rerelease/DOOM II_Data/StreamingAssets"
+		"Ultimate Doom/rerelease/DOOM_Data/StreamingAssets", // 2019 Unity port (previous-re-release branch in Doom + Doom II app)
+		"Ultimate Doom/rerelease",                           // 2024 KEX Port
+		"Doom 2/rerelease/DOOM II_Data/StreamingAssets",
+		"Doom 2/finaldoombase",
+        "Master Levels of Doom/doom2"
 	};
 
-	FString path;
+	FString steamPath;
 
-	if (!QueryPathKey(HKEY_CURRENT_USER, L"Software\\Valve\\Steam", L"SteamPath", path))
+	if (!QueryPathKey(HKEY_CURRENT_USER, L"Software\\Valve\\Steam", L"SteamPath", steamPath))
 	{
-		if (!QueryPathKey(HKEY_LOCAL_MACHINE, L"Software\\Valve\\Steam", L"InstallPath", path))
+		if (!QueryPathKey(HKEY_LOCAL_MACHINE, L"Software\\Valve\\Steam", L"InstallPath", steamPath))
 			return result;
 	}
-	path += "/SteamApps/common/";
 
-	for(unsigned int i = 0; i < countof(steam_dirs); ++i)
+	try
 	{
-		result.Push(path + steam_dirs[i]);
+		TArray<FString> paths = ParseSteamRegistry((steamPath + "/config/libraryfolders.vdf").GetChars());
+
+		for (FString& path : paths)
+		{
+			path.ReplaceChars('\\', '/');
+			path += "/";
+		}
+
+		paths.Push(steamPath + "/steamapps/common/");
+
+		for (unsigned int i = 0; i < countof(steam_dirs); ++i)
+		{
+			for (const FString& path : paths)
+			{
+				result.Push(path + steam_dirs[i]);
+			}
+		}
+	}
+	catch (const CRecoverableError& err)
+	{
+		// don't abort on errors in here. Just return an empty path.
 	}
 
 	return result;

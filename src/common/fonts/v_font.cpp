@@ -73,6 +73,7 @@ static int TranslationMapCompare (const void *a, const void *b);
 // EXTERNAL DATA DECLARATIONS ----------------------------------------------
 
 extern int PrintColors[];
+extern TArray<FBitmap> sheetBitmaps;
 
 // PUBLIC DATA DEFINITIONS -------------------------------------------------
 FFont* SmallFont, * SmallFont2, * BigFont, * BigUpper, * ConFont, * IntermissionFont, * NewConsoleFont, * NewSmallFont, 
@@ -92,6 +93,7 @@ TArray<PalEntry> TranslationColors;
 
 FFont *V_GetFont(const char *name, const char *fontlumpname)
 {
+	if (name == nullptr) return nullptr;
 	if (!stricmp(name, "DBIGFONT")) name = "BigFont";
 	else if (!stricmp(name, "CONFONT")) name = "ConsoleFont";	// several mods have used the name CONFONT directly and effectively duplicated the font.
 	else if (!stricmp(name, "INDEXFON")) name = "IndexFont";	// Same here - for whatever reason some people had to use its 8 character name...
@@ -107,11 +109,11 @@ FFont *V_GetFont(const char *name, const char *fontlumpname)
 		int lump = -1;
 		int folderfile = -1;
 
-		TArray<FolderEntry> folderdata;
+		std::vector<FileSys::FolderEntry> folderdata;
 		FStringf path("fonts/%s/", name);
 
 		// Use a folder-based font only if it comes from a later file than the single lump version.
-		if (fileSystem.GetFilesInFolder(path, folderdata, true))
+		if (fileSystem.GetFilesInFolder(path.GetChars(), folderdata, true))
 		{
 			// This assumes that any custom font comes in one piece and not distributed across multiple resource files.
 			folderfile = fileSystem.GetFileContainer(folderdata[0].lumpnum);
@@ -136,10 +138,10 @@ FFont *V_GetFont(const char *name, const char *fontlumpname)
 				return font;
 			}
 		}
-		FTextureID picnum = TexMan.CheckForTexture (name, ETextureType::Any);
-		if (picnum.isValid())
+		FTextureID texid = TexMan.CheckForTexture (name, ETextureType::Any);
+		if (texid.isValid())
 		{
-			auto tex = TexMan.GetGameTexture(picnum);
+			auto tex = TexMan.GetGameTexture(texid);
 			if (tex && tex->GetSourceLump() >= folderfile)
 			{
 				FFont *CreateSinglePicFont(const char *name);
@@ -147,7 +149,7 @@ FFont *V_GetFont(const char *name, const char *fontlumpname)
 				return font;
 			}
 		}
-		if (folderdata.Size() > 0)
+		if (folderdata.size() > 0)
 		{
 			font = new FFont(name, nullptr, name, 0, 0, 1, -1);
 			if (translationsLoaded) font->LoadTranslations();
@@ -298,7 +300,7 @@ void V_InitCustomFonts()
 			}
 			if (format == 1)
 			{
-				FFont *fnt = new FFont (namebuffer, templatebuf, nullptr, first, count, start, llump, spacewidth, donttranslate);
+				FFont *fnt = new FFont(namebuffer.GetChars(), templatebuf.GetChars(), nullptr, first, count, start, llump, spacewidth, donttranslate);
 				fnt->SetCursor(cursor);
 				fnt->SetKerning(kerning);
 				if (ignoreoffsets) fnt->ClearOffsets();
@@ -324,7 +326,7 @@ void V_InitCustomFonts()
 				if (count > 0)
 				{
 					FFont *CreateSpecialFont (const char *name, int first, int count, FGameTexture **lumplist, const bool *notranslate, int lump, bool donttranslate);
-					FFont *fnt = CreateSpecialFont (namebuffer, first, count, &lumplist[first], notranslate, llump, donttranslate);
+					FFont *fnt = CreateSpecialFont(namebuffer.GetChars(), first, count, &lumplist[first], notranslate, llump, donttranslate);
 					fnt->SetCursor(cursor);
 					fnt->SetKerning(kerning);
 					if (spacewidth >= 0) fnt->SpaceWidth = spacewidth;
@@ -665,12 +667,12 @@ static void CreateLuminosityTranslationRanges()
 //
 //==========================================================================
 
-void V_ApplyLuminosityTranslation(int translation, uint8_t* pixel, int size)
+void V_ApplyLuminosityTranslation(const LuminosityTranslationDesc& lum, uint8_t* pixel, int size)
 {
-	int colorrange = (translation >> 16) & 0x3fff;
+	int colorrange = lum.colorrange;
 	if (colorrange >= NumTextColors * 2) return;
-	int lum_min = (translation >> 8) & 0xff;
-	int lum_max = translation & 0xff;
+	int lum_min = lum.lum_min;
+	int lum_max = lum.lum_max;
 	int lum_range = (lum_max - lum_min + 1);
 	PalEntry* remap = paletteptr + colorrange * 256;
 
@@ -862,6 +864,7 @@ EColorRange V_ParseFontColor (const uint8_t *&color_value, int normalcolor, int 
 
 void V_InitFonts()
 {
+	sheetBitmaps.Clear();
 	CreateLuminosityTranslationRanges();
 	V_InitCustomFonts();
 
@@ -889,10 +892,11 @@ void V_LoadTranslations()
 		CalcDefaultTranslation(BigFont, CR_UNTRANSLATED * 2 + 1);
 		if (OriginalBigFont != nullptr && OriginalBigFont != BigFont)
 		{
-			int sometrans = OriginalBigFont->Translations[0];
+			assert(IsLuminosityTranslation(OriginalBigFont->Translations[0]));
+			int sometrans = OriginalBigFont->Translations[0].index();
 			sometrans &= ~(0x3fff << 16);
 			sometrans |= (CR_UNTRANSLATED * 2 + 1) << 16;
-			OriginalBigFont->Translations[CR_UNTRANSLATED] = sometrans;
+			OriginalBigFont->Translations[CR_UNTRANSLATED] = FTranslationID::fromInt(sometrans);
 			OriginalBigFont->forceremap = true;
 		}
 	}
@@ -901,18 +905,20 @@ void V_LoadTranslations()
 		CalcDefaultTranslation(SmallFont, CR_UNTRANSLATED * 2);
 		if (OriginalSmallFont != nullptr && OriginalSmallFont != SmallFont)
 		{
-			int sometrans = OriginalSmallFont->Translations[0];
+			assert(IsLuminosityTranslation(OriginalSmallFont->Translations[0]));
+			int sometrans = OriginalSmallFont->Translations[0].index();
 			sometrans &= ~(0x3fff << 16);
 			sometrans |= (CR_UNTRANSLATED * 2) << 16;
-			OriginalSmallFont->Translations[CR_UNTRANSLATED] = sometrans;
+			OriginalSmallFont->Translations[CR_UNTRANSLATED] = FTranslationID::fromInt(sometrans);
 			OriginalSmallFont->forceremap = true;
 		}
 		if (NewSmallFont != nullptr)
 		{
-			int sometrans = NewSmallFont->Translations[0];
+			assert(IsLuminosityTranslation(NewSmallFont->Translations[0]));
+			int sometrans = NewSmallFont->Translations[0].index();
 			sometrans &= ~(0x3fff << 16);
 			sometrans |= (CR_UNTRANSLATED * 2) << 16;
-			NewSmallFont->Translations[CR_UNTRANSLATED] = sometrans;
+			NewSmallFont->Translations[CR_UNTRANSLATED] = FTranslationID::fromInt(sometrans);
 			NewSmallFont->forceremap = true;
 		}
 	}
@@ -928,6 +934,7 @@ void V_ClearFonts()
 	}
 	FFont::FirstFont = nullptr;
 	AlternativeSmallFont = OriginalSmallFont = CurrentConsoleFont = NewSmallFont = NewConsoleFont = SmallFont = SmallFont2 = BigFont = ConFont = IntermissionFont = nullptr;
+	sheetBitmaps.Clear();
 }
 
 //==========================================================================

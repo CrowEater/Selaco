@@ -154,7 +154,7 @@ void FThinkerCollection::RunThinkers(FLevelLocals *Level)
 				if (dolights) ac->SetDynamicLights();
 			}
 			// This was merged from P_RunEffects to eliminate the costly duplicate ThinkerIterator loop.
-			if ((ac->effects || ac->fountaincolor) && !Level->isFrozen())
+			if ((ac->effects || ac->fountaincolor) && ac->ShouldRenderLocally() && !Level->isFrozen())
 			{
 				P_RunEffect(ac, ac->effects);
 			}
@@ -298,7 +298,7 @@ void FThinkerCollection::RunThinkers(FLevelLocals *Level)
 //
 //==========================================================================
 
-void FThinkerCollection::DestroyAllThinkers()
+void FThinkerCollection::DestroyAllThinkers(bool fullgc)
 {
 	int i;
 	bool error = false;
@@ -312,11 +312,12 @@ void FThinkerCollection::DestroyAllThinkers()
 		}
 	}
 	error |= Thinkers[MAX_STATNUM + 1].DoDestroyThinkers();
-	GC::FullGC();
+	if (fullgc) GC::FullGC();
 	if (error)
 	{
 		ClearGlobalVMStack();
-		I_Error("DestroyAllThinkers failed");
+		if (fullgc) I_Error("DestroyAllThinkers failed");
+		else I_FatalError("DestroyAllThinkers failed");
 	}
 }
 
@@ -688,7 +689,7 @@ bool FThinkerList::DoDestroyThinkers()
 			{
 				Printf("VM exception in DestroyThinkers:\n");
 				exception.MaybePrintMessage();
-				Printf("%s", exception.stacktrace.GetChars());
+				Printf(PRINT_NONOTIFY | PRINT_BOLD, "%s", exception.stacktrace.GetChars());
 				// forcibly delete this. Cleanup may be incomplete, though.
 				node->ObjectFlags |= OF_YesReallyDelete;
 				delete node;
@@ -696,7 +697,7 @@ bool FThinkerList::DoDestroyThinkers()
 			}
 			catch (CRecoverableError &exception)
 			{
-				Printf("Error in DestroyThinkers: %s\n", exception.GetMessage());
+				Printf(PRINT_NONOTIFY | PRINT_BOLD, "Error in DestroyThinkers: %s\n", exception.GetMessage());
 				// forcibly delete this. Cleanup may be incomplete, though.
 				node->ObjectFlags |= OF_YesReallyDelete;
 				delete node;
@@ -1111,7 +1112,12 @@ DEFINE_ACTION_FUNCTION_NATIVE(DThinker, ChangeStatNum, ChangeStatNum)
 {
 	PARAM_SELF_PROLOGUE(DThinker);
 	PARAM_INT(stat);
-	ChangeStatNum(self, stat);
+
+	// do not allow ZScript to reposition thinkers in or out of particle ticking.
+	if (stat != STAT_VISUALTHINKER && !dynamic_cast<DVisualThinker*>(self))
+	{
+		ChangeStatNum(self, stat);
+	}
 	return 0;
 }
 

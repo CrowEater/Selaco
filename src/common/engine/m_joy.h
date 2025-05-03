@@ -23,7 +23,7 @@ enum EJoyAxis
 
 
 // Generic configuration interface for a controller.
-struct NOVTABLE IJoystickConfig
+struct IJoystickConfig
 {
 	virtual ~IJoystickConfig() = 0;
 
@@ -44,6 +44,13 @@ struct NOVTABLE IJoystickConfig
 	virtual void SetAxisMap(int axis, EJoyAxis gameaxis) = 0;
 	virtual void SetAxisScale(int axis, float scale) = 0;
 	virtual void SetAxisAcceleration(int axis, float accel) {};
+
+	virtual bool GetEnabled() = 0;
+	virtual void SetEnabled(bool enabled) = 0;
+
+	virtual bool AllowsEnabledInBackground() = 0;
+	virtual bool GetEnabledInBackground() = 0;
+	virtual void SetEnabledInBackground(bool enabled) = 0;
 
 	// Used by the saver to not save properties that are at their defaults.
 	virtual bool IsSensitivityDefault() = 0;

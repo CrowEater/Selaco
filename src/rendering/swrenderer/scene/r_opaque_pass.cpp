@@ -46,7 +46,6 @@
 #include "swrenderer/things/r_wallsprite.h"
 #include "swrenderer/things/r_voxel.h"
 #include "swrenderer/things/r_particle.h"
-#include "swrenderer/things/r_model.h"
 #include "swrenderer/segments/r_clipsegment.h"
 #include "swrenderer/line/r_wallsetup.h"
 #include "swrenderer/line/r_farclip_line.h"
@@ -87,7 +86,7 @@ namespace
 	double line_distance_cull = 1e16;
 }
 
-CUSTOM_CVAR(Float, r_sprite_distance_cull, 0, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
+CUSTOM_CVAR(Float, r_sprite_distance_cull, 0.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
 {
 	if (r_sprite_distance_cull > 0.0)
 	{
@@ -99,7 +98,7 @@ CUSTOM_CVAR(Float, r_sprite_distance_cull, 0, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
 	}
 }
 
-CUSTOM_CVAR(Float, r_line_distance_cull, 0, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
+CUSTOM_CVAR(Float, r_line_distance_cull, 0.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
 {
 	if (r_line_distance_cull > 0.0)
 	{
@@ -111,7 +110,7 @@ CUSTOM_CVAR(Float, r_line_distance_cull, 0, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
 	}
 }
 
-CUSTOM_CVAR(Float, r_model_distance_cull, 1024, 0/*CVAR_ARCHIVE | CVAR_GLOBALCONFIG*/) // Experimental for the moment until a good default is chosen 
+CUSTOM_CVAR(Float, r_model_distance_cull, 1024.f, 0/*CVAR_ARCHIVE | CVAR_GLOBALCONFIG*/) // Experimental for the moment until a good default is chosen 
 {
 	if (r_model_distance_cull > 0.0)
 	{
@@ -556,7 +555,7 @@ namespace swrenderer
 				frontsector->GetAlpha(sector_t::ceiling),
 				!!(frontsector->GetFlags(sector_t::ceiling) & PLANEF_ADDITIVE),
 				frontsector->planes[sector_t::ceiling].xform,
-				frontsector->sky,
+				frontsector->skytransfer,
 				portal,
 				basecolormap,
 				Fake3DOpaque::Normal,
@@ -596,7 +595,7 @@ namespace swrenderer
 				frontsector->GetAlpha(sector_t::floor),
 				!!(frontsector->GetFlags(sector_t::floor) & PLANEF_ADDITIVE),
 				frontsector->planes[sector_t::floor].xform,
-				frontsector->sky,
+				frontsector->skytransfer,
 				portal,
 				basecolormap,
 				Fake3DOpaque::Normal,
@@ -606,7 +605,8 @@ namespace swrenderer
 		}
 
 		Add3DFloorPlanes(sub, frontsector, basecolormap, foggy, adjusted_ceilinglightlevel, adjusted_floorlightlevel);
-		AddSprites(sub->sector, frontsector, FakeSide, foggy);
+		auto nc = !!(frontsector->Level->flags3 & LEVEL3_NOCOLOREDSPRITELIGHTING);
+		AddSprites(sub->sector, frontsector->GetTexture(sector_t::ceiling) == skyflatnum ? ceilinglightlevel : floorlightlevel, FakeSide, foggy, GetSpriteColorTable(frontsector->Colormap, frontsector->SpecialColors[sector_t::sprites], nc));
 
 		// [RH] Add particles
 		if ((unsigned int)(sub->Index()) < Level->subsectors.Size())
@@ -732,7 +732,7 @@ namespace swrenderer
 						tempsec.GetAlpha(sector_t::floor),
 						!!(clip3d->fakeFloor->fakeFloor->flags & FF_ADDITIVETRANS),
 						tempsec.planes[position].xform,
-						tempsec.sky,
+						tempsec.skytransfer,
 						nullptr,
 						basecolormap,
 						Fake3DOpaque::FakeFloor,
@@ -800,7 +800,7 @@ namespace swrenderer
 						tempsec.GetAlpha(sector_t::ceiling),
 						!!(clip3d->fakeFloor->fakeFloor->flags & FF_ADDITIVETRANS),
 						tempsec.planes[position].xform,
-						tempsec.sky,
+						tempsec.skytransfer,
 						nullptr,
 						basecolormap,
 						Fake3DOpaque::FakeCeiling,
@@ -853,7 +853,7 @@ namespace swrenderer
 			node_t *bsp = (node_t *)node;
 
 			// Decide which side the view point is on.
-			int side = R_PointOnSide(Thread->Viewport->viewpoint.Pos, bsp);
+			int side = R_PointOnSide(Thread->Viewport->viewpoint.Pos.XY(), bsp);
 
 			// Recursively divide front space (toward the viewer).
 			RenderBSPNode(bsp->children[side]);
@@ -874,7 +874,7 @@ namespace swrenderer
 		fillshort(ceilingclip, viewwidth, 0);
 	}
 
-	void RenderOpaquePass::AddSprites(sector_t *sec, sector_t* frontsector, WaterFakeSide fakeside, bool foggy)
+	void RenderOpaquePass::AddSprites(sector_t *sec, int lightlevel, WaterFakeSide fakeside, bool foggy, FDynamicColormap *basecolormap)
 	{
 		// BSP is traversed by subsector.
 		// A sector might have been split into several
@@ -932,30 +932,25 @@ namespace swrenderer
 				ThingSprite sprite;
 				int spritenum = thing->sprite;
 				bool isPicnumOverride = thing->picnum.isValid();
-				FSpriteModelFrame *modelframe = isPicnumOverride ? nullptr : FindModelFrame(thing->GetClass(), spritenum, thing->frame, !!(thing->flags & MF_DROPPED));
-				if (r_modelscene && modelframe && (thing->Pos() - Thread->Viewport->viewpoint.Pos).LengthSquared() < model_distance_cull)
+				if (GetThingSprite(thing, sprite))
 				{
-					DVector3 pos = thing->InterpolatedPosition(Thread->Viewport->viewpoint.TicFrac);
-					RenderModel::Project(Thread, (float)pos.X, (float)pos.Y, (float)pos.Z, modelframe, thing);
-				}
-				else if (GetThingSprite(thing, sprite))
-				{
-					int thinglightlevel;
+					FDynamicColormap *thingColormap = basecolormap;
+					int thinglightlevel = lightlevel;
 					if (sec->sectornum != thing->Sector->sectornum)	// compare sectornums to account for R_FakeFlat copies.
 					{
-						frontsector = thing->Sector;
+						thinglightlevel = thing->Sector->GetTexture(sector_t::ceiling) == skyflatnum ? thing->Sector->GetCeilingLight() : thing->Sector->GetFloorLight();
+						auto nc = !!(thing->Level->flags3 & LEVEL3_NOCOLOREDSPRITELIGHTING);
+						thingColormap = GetSpriteColorTable(thing->Sector->Colormap, thing->Sector->SpecialColors[sector_t::sprites], nc);					
 					}
-					auto nc = !!(thing->Level->flags3 & LEVEL3_NOCOLOREDSPRITELIGHTING);
-					FDynamicColormap* thingColormap = GetSpriteColorTable(frontsector->Colormap, frontsector->SpecialColors[sector_t::sprites], nc);
+					if (thing->LightLevel > -1)
+					{
+						thinglightlevel = thing->LightLevel;
 
-					// per-sprite lightlevel and fog do not mix well in the software renderer.
-					if (!foggy)
-					{
-						thinglightlevel = clamp(thing->GetLightLevel(frontsector), 0, 255);
-					}
-					else
-					{
-						thinglightlevel = clamp<int>(frontsector->lightlevel, 0, 255);
+						if (thing->flags8 & MF8_ADDLIGHTLEVEL)
+						{
+							thinglightlevel += thing->Sector->GetTexture(sector_t::ceiling) == skyflatnum ? thing->Sector->GetCeilingLight() : thing->Sector->GetFloorLight();
+							thinglightlevel = clamp(thinglightlevel, 0, 255);
+						}
 					}
 					if ((sprite.renderflags & RF_SPRITETYPEMASK) == RF_WALLSPRITE)
 					{
@@ -1051,7 +1046,7 @@ namespace swrenderer
 		// The X offsetting (SpriteOffset.X) is performed in r_sprite.cpp, in RenderSprite::Project().
 		sprite.pos = thing->InterpolatedPosition(Thread->Viewport->viewpoint.TicFrac);
 		sprite.pos += thing->WorldOffset;
-		sprite.pos.Z += thing->GetBobOffset(Thread->Viewport->viewpoint.TicFrac) - thing->SpriteOffset.Y;
+		sprite.pos.Z += thing->GetBobOffset(Thread->Viewport->viewpoint.TicFrac) + thing->GetSpriteOffset(true);
 		sprite.spritenum = thing->sprite;
 		sprite.tex = nullptr;
 		sprite.voxel = nullptr;
@@ -1079,16 +1074,16 @@ namespace swrenderer
 				if (sprframe->Texture[0] == sprframe->Texture[1])
 				{
 					if (thing->flags7 & MF7_SPRITEANGLE)
-						rot = (thing->SpriteAngle + 45.0 / 2 * 9).BAMs() >> 28;
+						rot = (thing->SpriteAngle + DAngle::fromDeg(45.0 / 2 * 9)).BAMs() >> 28;
 					else
-						rot = (ang - (thing->Angles.Yaw + thing->SpriteRotation) + 45.0 / 2 * 9).BAMs() >> 28;
+						rot = (ang - (thing->Angles.Yaw + thing->SpriteRotation) + DAngle::fromDeg(45.0 / 2 * 9)).BAMs() >> 28;
 				}
 				else
 				{
 					if (thing->flags7 & MF7_SPRITEANGLE)
-						rot = (thing->SpriteAngle + (45.0 / 2 * 9 - 180.0 / 16)).BAMs() >> 28;
+						rot = (thing->SpriteAngle + DAngle::fromDeg(45.0 / 2 * 9 - 180.0 / 16)).BAMs() >> 28;
 					else
-						rot = (ang - (thing->Angles.Yaw + thing->SpriteRotation) + (45.0 / 2 * 9 - 180.0 / 16)).BAMs() >> 28;
+						rot = (ang - (thing->Angles.Yaw + thing->SpriteRotation) + DAngle::fromDeg(45.0 / 2 * 9 - 180.0 / 16)).BAMs() >> 28;
 				}
 				sprite.picnum = sprframe->Texture[rot];
 				if (sprframe->Flip & (1 << rot))

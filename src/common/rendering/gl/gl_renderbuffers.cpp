@@ -87,6 +87,7 @@ void FGLRenderBuffers::ClearScene()
 
 void FGLRenderBuffers::ClearPipeline()
 {
+	DeleteRenderBuffer(mPipelineDepthStencilBuf);
 	for (int i = 0; i < NumPipelineTextures; i++)
 	{
 		DeleteFrameBuffer(mPipelineFB[i]);
@@ -239,10 +240,11 @@ void FGLRenderBuffers::CreatePipeline(int width, int height)
 	ClearPipeline();
 	ClearEyeBuffers();
 
+	mPipelineDepthStencilBuf = CreateRenderBuffer("PipelineDepthStencil", GL_DEPTH24_STENCIL8, width, height);
 	for (int i = 0; i < NumPipelineTextures; i++)
 	{
 		mPipelineTexture[i] = Create2DTexture("PipelineTexture", GL_RGBA16F, width, height);
-		mPipelineFB[i] = CreateFrameBuffer("PipelineFB", mPipelineTexture[i]);
+		mPipelineFB[i] = CreateFrameBuffer("PipelineFB", mPipelineTexture[i], mPipelineDepthStencilBuf);
 	}
 }
 
@@ -834,8 +836,8 @@ FShaderProgram *GLPPRenderState::GetGLShader(PPShader *shader)
 			prolog = UniformBlockDecl::Create("Uniforms", shader->Uniforms, POSTPROCESS_BINDINGPOINT);
 		prolog += shader->Defines;
 
-		glshader->Compile(FShaderProgram::Vertex, shader->VertexShader, "", shader->Version);
-		glshader->Compile(FShaderProgram::Fragment, shader->FragmentShader, prolog, shader->Version);
+		glshader->Compile(FShaderProgram::Vertex, shader->VertexShader.GetChars(), "", shader->Version);
+		glshader->Compile(FShaderProgram::Fragment, shader->FragmentShader.GetChars(), prolog.GetChars(), shader->Version);
 		glshader->Link(shader->FragmentShader.GetChars());
 		if (!shader->Uniforms.empty())
 			glshader->SetUniformBufferLocation(POSTPROCESS_BINDINGPOINT, "Uniforms");

@@ -22,12 +22,13 @@
 
 #include "vk_ppshader.h"
 #include "vk_shader.h"
-#include "vulkan/system/vk_framebuffer.h"
-#include "vulkan/system/vk_builders.h"
+#include "vulkan/system/vk_renderdevice.h"
+#include "zvulkan/vulkanbuilders.h"
 #include "vulkan/system/vk_commandbuffer.h"
 #include "filesystem.h"
+#include "cmdlib.h"
 
-VkPPShader::VkPPShader(VulkanFrameBuffer* fb, PPShader *shader) : fb(fb)
+VkPPShader::VkPPShader(VulkanRenderDevice* fb, PPShader *shader) : fb(fb)
 {
 	FString prolog;
 	if (!shader->Uniforms.empty())
@@ -35,14 +36,16 @@ VkPPShader::VkPPShader(VulkanFrameBuffer* fb, PPShader *shader) : fb(fb)
 	prolog += shader->Defines;
 
 	VertexShader = ShaderBuilder()
-		.VertexShader(LoadShaderCode(shader->VertexShader, "", shader->Version))
+		.Type(ShaderType::Vertex)
+		.AddSource(shader->VertexShader.GetChars(), LoadShaderCode(shader->VertexShader, "", shader->Version).GetChars())
 		.DebugName(shader->VertexShader.GetChars())
-		.Create(shader->VertexShader.GetChars(), fb->device);
+		.Create(shader->VertexShader.GetChars(), fb->device.get());
 
 	FragmentShader = ShaderBuilder()
-		.FragmentShader(LoadShaderCode(shader->FragmentShader, prolog, shader->Version))
+		.Type(ShaderType::Fragment)
+		.AddSource(shader->FragmentShader.GetChars(), LoadShaderCode(shader->FragmentShader, prolog, shader->Version).GetChars())
 		.DebugName(shader->FragmentShader.GetChars())
-		.Create(shader->FragmentShader.GetChars(), fb->device);
+		.Create(shader->FragmentShader.GetChars(), fb->device.get());
 
 	fb->GetShaderManager()->AddVkPPShader(this);
 }
@@ -64,9 +67,9 @@ void VkPPShader::Reset()
 
 FString VkPPShader::LoadShaderCode(const FString &lumpName, const FString &defines, int version)
 {
-	int lump = fileSystem.CheckNumForFullName(lumpName);
+	int lump = fileSystem.CheckNumForFullName(lumpName.GetChars());
 	if (lump == -1) I_FatalError("Unable to load '%s'", lumpName.GetChars());
-	FString code = fileSystem.ReadFile(lump).GetString().GetChars();
+	FString code = GetStringFromLump(lump);
 
 	FString patchedCode;
 	patchedCode.AppendFormat("#version %d\n", 450);

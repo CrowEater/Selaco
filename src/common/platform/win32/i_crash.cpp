@@ -68,7 +68,7 @@
 #include "i_mainwindow.h"
 
 #include <time.h>
-#include <zlib.h>
+#include <miniz.h>
 
 // MACROS ------------------------------------------------------------------
 
@@ -381,12 +381,14 @@ static HANDLE WriteMyMiniDump (void)
 			{
 				MiniDumpThreadData dumpdata = { file, pMiniDumpWriteDump, &exceptor };
 				DWORD id;
-				HANDLE thread = CreateThread (NULL, 0, WriteMiniDumpInAnotherThread,
-					&dumpdata, 0, &id);
-				WaitForSingleObject (thread, INFINITE);
-				if (GetExitCodeThread (thread, &id))
+				HANDLE thread = CreateThread (NULL, 0, WriteMiniDumpInAnotherThread, &dumpdata, 0, &id);
+				if (thread != nullptr)
 				{
-					good = id;
+					WaitForSingleObject(thread, INFINITE);
+					if (GetExitCodeThread(thread, &id))
+					{
+						good = id;
+					}
 				}
 			}
 		}

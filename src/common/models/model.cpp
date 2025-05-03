@@ -25,6 +25,7 @@
 ** General model handling code
 **
 **/
+#include <stddef.h> // offsetof() macro.
 
 #include "filesystem.h"
 #include "cmdlib.h"
@@ -36,14 +37,15 @@
 #include "model_md2.h"
 #include "model_md3.h"
 #include "model_kvx.h"
+#include "model_iqm.h"
 #include "i_time.h"
 #include "voxels.h"
 #include "texturemanager.h"
 #include "modelrenderer.h"
 
-
 TDeletingArray<FModel*> Models;
 TArray<FSpriteModelFrame> SpriteModelFrames;
+TMap<void*, FSpriteModelFrame> BaseSpriteModelFrames;
 
 
 /////////////////////////////////////////////////////////////////////////////
@@ -76,6 +78,11 @@ void FModel::DestroyVertexBuffer()
 		delete mVBuf[i];
 		mVBuf[i] = nullptr;
 	}
+	loadState = NONE;
+}
+
+void FModel::LoadGeometry(FileSys::FileData* lumpData) {
+	I_FatalError("LoadGeometry(FileData) is not implemented for: %s\n", mFileName.GetChars());
 }
 
 //===========================================================================
@@ -86,7 +93,7 @@ void FModel::DestroyVertexBuffer()
 
 static int FindGFXFile(FString & fn)
 {
-	int lump = fileSystem.CheckNumForFullName(fn);	// if we find something that matches the name plus the extension, return it and do not enter the substitution logic below.
+	int lump = fileSystem.CheckNumForFullName(fn.GetChars());	// if we find something that matches the name plus the extension, return it and do not enter the substitution logic below.
 	if (lump != -1) return lump;
 
 	int best = -1;
@@ -98,7 +105,7 @@ static int FindGFXFile(FString & fn)
 
 	for (const char ** extp=extensions; *extp; extp++)
 	{
-		lump = fileSystem.CheckNumForFullName(fn + *extp);
+		lump = fileSystem.CheckNumForFullName((fn + *extp).GetChars());
 		if (lump >= best)  best = lump;
 	}
 	return best;
@@ -119,7 +126,7 @@ FTextureID LoadSkin(const char * path, const char * fn)
 
 	int texlump = FindGFXFile(buffer);
 	const char * const texname = texlump < 0 ? fn : fileSystem.GetFileFullName(texlump);
-	return TexMan.CheckForTexture(texname, ETextureType::Any, FTextureManager::TEXMAN_TryAny);
+	return TexMan.CheckForTexture(texname, ETextureType::Any, FTextureManager::TEXMAN_TryAny | FTextureManager::TEXMAN_ForceLookup);
 }
 
 //===========================================================================
@@ -130,17 +137,7 @@ FTextureID LoadSkin(const char * path, const char * fn)
 
 int ModelFrameHash(FSpriteModelFrame * smf)
 {
-	const uint32_t *table = GetCRCTable ();
-	uint32_t hash = 0xffffffff;
-
-	const char * s = (const char *)(&smf->type);	// this uses type, sprite and frame for hashing
-	const char * se= (const char *)(&smf->hashnext);
-
-	for (; s<se; s++)
-	{
-		hash = CRC1 (hash, *s, table);
-	}
-	return hash ^ 0xffffffff;
+	return crc32(0, (const unsigned char *)(&smf->type), offsetof(FSpriteModelFrame, hashnext) - offsetof(FSpriteModelFrame, type));
 }
 
 //===========================================================================
@@ -149,34 +146,41 @@ int ModelFrameHash(FSpriteModelFrame * smf)
 //
 //===========================================================================
 
-unsigned FindModel(const char * path, const char * modelfile)
+unsigned FindModel(const char * path, const char * modelfile, bool silent)
 {
 	FModel * model = nullptr;
 	FString fullname;
 
-	fullname.Format("%s%s", path, modelfile);
-	int lump = fileSystem.CheckNumForFullName(fullname);
+	if (path) fullname.Format("%s%s", path, modelfile);
+	else fullname = modelfile;
+	int lump = fileSystem.CheckNumForFullName(fullname.GetChars());
 
 	if (lump<0)
 	{
-		Printf("FindModel: '%s' not found\n", fullname.GetChars());
+		Printf(PRINT_HIGH, "FindModel: '%s' not found\n", fullname.GetChars());
 		return -1;
 	}
 
 	for(unsigned i = 0; i< Models.Size(); i++)
 	{
-		if (!Models[i]->mFileName.CompareNoCase(fullname)) return i;
+		if (Models[i]->mFileName.CompareNoCase(fullname) == 0) return i;
 	}
 
-	int len = fileSystem.FileLength(lump);
-	FileData lumpd = fileSystem.ReadFile(lump);
-	char * buffer = (char*)lumpd.GetMem();
+	auto len = fileSystem.FileLength(lump);
+	if (len >= 0x80000000ll)
+	{
+		Printf(PRINT_HIGH, "LoadModel: File to large: '%s'\n", fullname.GetChars());
+		return -1;
+	}
+
+	auto lumpd = fileSystem.ReadFile(lump);
+	const char * buffer = lumpd.string();
 
 	if ( (size_t)fullname.LastIndexOf("_d.3d") == fullname.Len()-5 )
 	{
 		FString anivfile = fullname.GetChars();
 		anivfile.Substitute("_d.3d","_a.3d");
-		if ( fileSystem.CheckNumForFullName(anivfile) > 0 )
+		if ( fileSystem.CheckNumForFullName(anivfile.GetChars()) > 0 )
 		{
 			model = new FUE1Model;
 		}
@@ -185,7 +189,7 @@ unsigned FindModel(const char * path, const char * modelfile)
 	{
 		FString datafile = fullname.GetChars();
 		datafile.Substitute("_a.3d","_d.3d");
-		if ( fileSystem.CheckNumForFullName(datafile) > 0 )
+		if ( fileSystem.CheckNumForFullName(datafile.GetChars()) > 0 )
 		{
 			model = new FUE1Model;
 		}
@@ -206,10 +210,14 @@ unsigned FindModel(const char * path, const char * modelfile)
 	{
 		model = new FMD3Model;
 	}
+	else if (!memcmp(buffer, "INTERQUAKEMODEL\0", 16))
+	{
+		model = new IQMModel;
+	}
 
 	if (model != nullptr)
 	{
-		if (!model->Load(path, lump, buffer, len))
+		if (!model->Load(path, lump, buffer, (int)len))
 		{
 			delete model;
 			return -1;
@@ -225,12 +233,13 @@ unsigned FindModel(const char * path, const char * modelfile)
 		}
 		else
 		{
-			Printf("LoadModel: Unknown model format in '%s'\n", fullname.GetChars());
+			Printf(PRINT_HIGH, "LoadModel: Unknown model format in '%s'\n", fullname.GetChars());
 			return -1;
 		}
 	}
 	// The vertex buffer cannot be initialized here because this gets called before OpenGL is initialized
 	model->mFileName = fullname;
+	model->mFilePath = {path, modelfile};
 	return Models.Push(model);
 }
 

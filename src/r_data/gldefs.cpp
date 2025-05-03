@@ -76,7 +76,7 @@ static void do_uniform_set(float value, ExtraUniformCVARData* data)
 		for (unsigned int i = 0; i < PostProcessShaders.Size(); i++)
 		{
 			PostProcessShader& shader = PostProcessShaders[i];
-			if (strcmp(shader.Name, data->Shader) == 0)
+			if (strcmp(shader.Name.GetChars(), data->Shader.GetChars()) == 0)
 			{
 				data->vec4 = shader.Uniforms[data->Uniform].Values;
 			}
@@ -154,7 +154,7 @@ static void ParseVavoomSkybox()
 		sb->SetSize();
 		if (!error)
 		{
-			TexMan.AddGameTexture(MakeGameTexture(sb, s, ETextureType::Override));
+			TexMan.AddGameTexture(MakeGameTexture(sb, s.GetChars(), ETextureType::Override));
 		}
 	}
 }
@@ -997,7 +997,7 @@ class GLDefsParser
 					break;
 				case LIGHTTAG_LIGHT:
 					ParseString(sc);
-					AddLightAssociation(name, frameName, sc.String);
+					AddLightAssociation(name.GetChars(), frameName.GetChars(), sc.String);
 					break;
 				default:
 					sc.ScriptError("Unknown tag: %s\n", sc.String);
@@ -1072,7 +1072,7 @@ class GLDefsParser
 		sc.MustGetString();
 
 		FString s = sc.String;
-		FSkyBox * sb = new FSkyBox(s);
+		FSkyBox * sb = new FSkyBox(s.GetChars());
 		if (sc.CheckString("fliptop"))
 		{
 			sb->fliptop = true;
@@ -1092,7 +1092,7 @@ class GLDefsParser
 			sc.ScriptError("%s: Skybox definition requires either 3 or 6 faces", s.GetChars());
 		}
 		sb->SetSize();
-		TexMan.AddGameTexture(MakeGameTexture(sb, s, ETextureType::Override));
+		TexMan.AddGameTexture(MakeGameTexture(sb, s.GetChars(), ETextureType::Override));
 	}
 
 	//===========================================================================
@@ -1445,12 +1445,12 @@ class GLDefsParser
 		if (usershader.shader.IsNotEmpty())
 		{
 			int firstUserTexture;
-			if ((mlay.Normal || tex->Normal.get()) && (mlay.Specular || tex->Specular.get()))
+			if ((mlay.Normal || tex->GetNormalmap()) && (mlay.Specular || tex->GetSpecularmap()))
 			{
 				usershader.shaderType = SHADER_Specular;
 				firstUserTexture = 7;
 			}
-			else if ((mlay.Normal || tex->Normal.get()) && (mlay.Metallic || tex->Metallic.get()) && (mlay.Roughness || tex->Roughness.get()) && (mlay.AmbientOcclusion || tex->AmbientOcclusion.get()))
+			else if ((mlay.Normal || tex->GetNormalmap()) && (mlay.Metallic || tex->GetMetallic()) && (mlay.Roughness || tex->GetRoughness()) && (mlay.AmbientOcclusion || tex->GetAmbientOcclusion()))
 			{
 				usershader.shaderType = SHADER_PBR;
 				firstUserTexture = 9;
@@ -1564,7 +1564,7 @@ class GLDefsParser
 					if (is_cvar)
 					{
 						addedcvars = true;
-						if (!shaderdesc.Name.GetChars())
+						if (shaderdesc.Name.IsEmpty())
 							sc.ScriptError("Shader must have a name to use cvar uniforms");
 
 						ECVarType cvartype = CVAR_Dummy;
@@ -1588,7 +1588,7 @@ class GLDefsParser
 						}
 						sc.MustGetString();
 						cvarname = sc.String;
-						cvar = FindCVar(cvarname, NULL);
+						cvar = FindCVar(cvarname.GetChars(), NULL);
 
 						UCVarValue oldval;
 						UCVarValue val;
@@ -1606,7 +1606,7 @@ class GLDefsParser
 						{
 							if (!cvar)
 							{
-								cvar = C_CreateCVar(cvarname, cvartype, cvarflags);
+								cvar = C_CreateCVar(cvarname.GetChars(), cvartype, cvarflags);
 							}
 							else if (cvar && (((cvar->GetFlags()) & CVAR_MOD) == CVAR_MOD))
 							{
@@ -1626,7 +1626,7 @@ class GLDefsParser
 							{
 								oldval.Float = cvar->GetGenericRep(CVAR_Float).Float;
 								delete cvar;
-								cvar = C_CreateCVar(cvarname, cvartype, cvarflags);
+								cvar = C_CreateCVar(cvarname.GetChars(), cvartype, cvarflags);
 								oldextra = (ExtraUniformCVARData*)cvar->GetExtraDataPointer();
 							}
 
@@ -1706,7 +1706,9 @@ class GLDefsParser
 						skipOpeningBrace = true;
 					}
 					else {
-						//Printf("Duplicating texture, making new tex with name: %s\n", sc.String);
+						#ifndef NDEBUG
+							Printf("Duplicating texture, making new tex with name: %s\n", sc.String);
+						#endif
 						auto orig = tex->GetTexture();
 						auto newTex = MakeGameTexture(orig, sc.String, type);
 						tex->CopySize(tex, false);
@@ -1714,13 +1716,23 @@ class GLDefsParser
 
 						// I have no idea if this will actually work
 						if (tex->GetBrightmap()) newTex->Brightmap = tex->GetBrightmap();
-						if (tex->Normal.get()) newTex->Normal = tex->Normal;
-						if (tex->AmbientOcclusion.get()) newTex->AmbientOcclusion = tex->AmbientOcclusion;
-						if (tex->Roughness.get()) newTex->Roughness = tex->Roughness;
-						if (tex->Metallic.get()) newTex->Metallic = tex->Metallic;
-						if (tex->Specular.get()) newTex->Specular = tex->Specular;
-						if (tex->Glowmap.get()) newTex->Glowmap = tex->Glowmap;
-						if (tex->Detailmap.get()) newTex->Detailmap = tex->Detailmap;
+
+						// Copy layers
+						FMaterialLayers* layers = tex->Layers.get();
+						
+						if (layers != nullptr) {
+							if (layers->Normal.get()) newTex->Layers->Normal = layers->Normal;
+							if (layers->AmbientOcclusion.get()) newTex->Layers->AmbientOcclusion = layers->AmbientOcclusion;
+							if (layers->Roughness.get()) newTex->Layers->Roughness = layers->Roughness;
+							if (layers->Metallic.get()) newTex->Layers->Metallic = layers->Metallic;
+							if (layers->Specular.get()) newTex->Layers->Specular = layers->Specular;
+							if (layers->Glowmap.get()) newTex->Layers->Glowmap = layers->Glowmap;
+							if (layers->Detailmap.get()) newTex->Layers->Detailmap = layers->Detailmap;
+
+							for (int x = 0; x < MAX_CUSTOM_HW_SHADER_TEXTURES; x++) {
+								newTex->Layers->CustomShaderTextures[x] = layers->CustomShaderTextures[x];
+							}
+						}
 
 						tex = newTex;
 					}
@@ -1940,7 +1952,7 @@ public:
 			if (!sc.GetToken ())
 			{
 				if (addedcvars)
-					GameConfig->DoModSetup (gameinfo.ConfigName);
+					GameConfig->DoModSetup (gameinfo.ConfigName.GetChars());
 				return;
 			}
 			type = sc.MatchString(CoreKeywords);

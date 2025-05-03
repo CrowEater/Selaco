@@ -296,7 +296,7 @@ static void parseSector(FScanner &sc, TMap<int, EDSector> &EDSectors)
 		{
 			sc.CheckString("=");
 			sc.MustGetFloat();
-			sec.angle[sector_t::floor] = sc.Float;
+			sec.angle[sector_t::floor] = DAngle::fromDeg(sc.Float);
 		}
 		else if (sc.Compare("flooroffsetx"))
 		{
@@ -320,7 +320,7 @@ static void parseSector(FScanner &sc, TMap<int, EDSector> &EDSectors)
 		{
 			sc.CheckString("=");
 			sc.MustGetFloat();
-			sec.angle[sector_t::ceiling] = sc.Float;
+			sec.angle[sector_t::ceiling] = DAngle::fromDeg(sc.Float);
 		}
 		else if (sc.Compare("ceilingoffsetx"))
 		{
@@ -520,7 +520,7 @@ void MapLoader::InitED()
 	FScanner sc;
 
 	if (filename.IsEmpty()) return;
-	int lump = fileSystem.CheckNumForFullName(filename, true, ns_global);
+	int lump = fileSystem.CheckNumForFullName(filename.GetChars(), true, FileSys::ns_global);
 	if (lump == -1) return;
 	sc.OpenLumpNum(lump);
 
@@ -659,7 +659,7 @@ void MapLoader::LoadMapinfoACSLump()
 {
 	if (Level->info->acsName.IsNotEmpty())
 	{
-		int lump = fileSystem.CheckNumForName(Level->info->acsName);
+		int lump = fileSystem.CheckNumForName(Level->info->acsName.GetChars());
 		if (lump >= 0) Level->Behaviors.LoadModule(lump);
 	}
 }

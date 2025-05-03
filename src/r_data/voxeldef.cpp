@@ -50,17 +50,21 @@
 #include "g_level.h"
 #include "r_data/sprites.h"
 
+using namespace FileSys;
+
 struct VoxelOptions
 {
-	VoxelOptions()
-		: DroppedSpin(0), PlacedSpin(0), Scale(1.), AngleOffset(90.), OverridePalette(false)
-	{}
-
-	int			DroppedSpin;
-	int			PlacedSpin;
-	double		Scale;
-	DAngle		AngleOffset;
-	bool		OverridePalette;
+	int			DroppedSpin = 0;
+	int			PlacedSpin = 0;
+	double		Scale = 1;
+	DAngle		AngleOffset = DAngle90;
+	double		xoffset = 0.0;
+	double		yoffset = 0.0;
+	double		zoffset = 0.0;
+	bool		OverridePalette = false;
+	bool		PitchFromMomentum = false;
+	bool		UseActorPitch = false;
+	bool		UseActorRoll = false;
 };
 
 void VOX_AddVoxel(int sprnum, int frame, FVoxelDef* def);
@@ -174,11 +178,71 @@ static void VOX_ReadOptions(FScanner &sc, VoxelOptions &opts)
 			{
 				sc.TokenMustBe(TK_FloatConst);
 			}
-			opts.AngleOffset = mul * sc.Float + 90.;
+			opts.AngleOffset = DAngle::fromDeg(mul * sc.Float + 90.);
+		}
+		else if (sc.Compare("xoffset"))
+		{
+			int mul = 1;
+			sc.MustGetToken('=');
+			if (sc.CheckToken('-')) mul = -1;
+			sc.MustGetAnyToken();
+			if (sc.TokenType == TK_IntConst)
+			{
+				sc.Float = sc.Number;
+			}
+			else
+			{
+				sc.TokenMustBe(TK_FloatConst);
+			}
+			opts.xoffset = sc.Float * mul;
+		}
+		else if (sc.Compare("yoffset"))
+		{
+			int mul = 1;
+			sc.MustGetToken('=');
+			if (sc.CheckToken('-')) mul = -1;
+			sc.MustGetAnyToken();
+			if (sc.TokenType == TK_IntConst)
+			{
+				sc.Float = sc.Number;
+			}
+			else
+			{
+				sc.TokenMustBe(TK_FloatConst);
+			}
+			opts.yoffset = sc.Float * mul;
+		}
+		else if (sc.Compare("zoffset"))
+		{
+			int mul = 1;
+			sc.MustGetToken('=');
+			if (sc.CheckToken('-')) mul = -1;
+			sc.MustGetAnyToken();
+			if (sc.TokenType == TK_IntConst)
+			{
+				sc.Float = sc.Number;
+			}
+			else
+			{
+				sc.TokenMustBe(TK_FloatConst);
+			}
+			opts.zoffset = sc.Float * mul;
 		}
 		else if (sc.Compare("overridepalette"))
 		{
 			opts.OverridePalette = true;
+		}
+		else if (sc.Compare("pitchfrommomentum"))
+		{
+			opts.PitchFromMomentum = true;
+		}
+		else if (sc.Compare("useactorpitch"))
+		{
+			opts.UseActorPitch = true;
+		}
+		else if (sc.Compare("useactorroll"))
+		{
+			opts.UseActorRoll = true;
 		}
 		else
 		{
@@ -249,6 +313,12 @@ void R_InitVoxels()
 				def->DroppedSpin = opts.DroppedSpin;
 				def->PlacedSpin = opts.PlacedSpin;
 				def->AngleOffset = opts.AngleOffset;
+				def->xoffset = opts.xoffset;
+				def->yoffset = opts.yoffset;
+				def->zoffset = opts.zoffset;
+				def->PitchFromMomentum = opts.PitchFromMomentum;
+				def->UseActorPitch = opts.UseActorPitch;
+				def->UseActorRoll = opts.UseActorRoll;
 				VoxelDefs.Push(def);
 
 				for (unsigned i = 0; i < vsprites.Size(); ++i)

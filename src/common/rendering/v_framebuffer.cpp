@@ -50,6 +50,8 @@
 #include "flatvertices.h"
 #include "version.h"
 #include "hw_material.h"
+#include "a_sharedglobal.h"
+#include "menustate.h"
 
 #include <chrono>
 #include <thread>
@@ -170,6 +172,8 @@ void DFrameBuffer::SetViewportRects(IntRect *bounds)
 		mSceneViewport = *bounds;
 		mScreenViewport = *bounds;
 		mOutputLetterbox = *bounds;
+		mGameScreenWidth = mScreenViewport.width;
+		mGameScreenHeight = mScreenViewport.height;
 		return;
 	}
 
@@ -216,6 +220,9 @@ void DFrameBuffer::SetViewportRects(IntRect *bounds)
 		mSceneViewport.width = (int)round(mSceneViewport.width * scaleX);
 		mSceneViewport.height = (int)round(mSceneViewport.height * scaleY);
 	}
+
+	mGameScreenWidth = GetWidth();
+	mGameScreenHeight = GetHeight();
 }
 
 //===========================================================================
@@ -226,12 +233,12 @@ void DFrameBuffer::SetViewportRects(IntRect *bounds)
 
 int DFrameBuffer::ScreenToWindowX(int x)
 {
-	return mScreenViewport.left + (int)round(x * mScreenViewport.width / (float)GetWidth());
+	return mScreenViewport.left + (int)round(x * mScreenViewport.width / (float)mGameScreenWidth);
 }
 
 int DFrameBuffer::ScreenToWindowY(int y)
 {
-	return mScreenViewport.top + mScreenViewport.height - (int)round(y * mScreenViewport.height / (float)GetHeight());
+	return mScreenViewport.top + mScreenViewport.height - (int)round(y * mScreenViewport.height / (float)mGameScreenHeight);
 }
 
 void DFrameBuffer::ScaleCoordsFromWindow(int16_t &x, int16_t &y)
@@ -250,10 +257,23 @@ void DFrameBuffer::FPSLimit()
 	using namespace std::chrono;
 	using namespace std::this_thread;
 
-	if (vid_maxfps <= 0 || cl_capfps)
+	// @Cockatrice - Limit menu FPS to 200 regardless of setting
+	// Otherwise we can go NUTS on animated menus for no reason
+	bool isMenu = menuactive == MENU_On;
+
+	if (!isMenu && (vid_maxfps <= 0 || cl_capfps))
 		return;
 
-	uint64_t targetWakeTime = fpsLimitTime + 1'000'000 / vid_maxfps;
+	int maxfps = vid_maxfps;
+	
+	if(isMenu) {
+		if(maxfps == 0) maxfps = 200;
+		else maxfps = std::min(maxfps, 200);
+	} else if(maxfps == 0) {
+		return;
+	}
+
+	uint64_t targetWakeTime = fpsLimitTime + 1'000'000 / maxfps;
 
 	while (true)
 	{

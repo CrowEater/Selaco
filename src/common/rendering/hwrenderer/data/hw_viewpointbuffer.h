@@ -1,4 +1,4 @@
-
+#pragma once
 #include "tarray.h"
 #include "hwrenderer/data/buffers.h"
 
@@ -18,8 +18,6 @@ class HWViewpointBuffer
 	unsigned int mLastMappedIndex;
 	unsigned int mByteSize;
 	TArray<bool> mClipPlaneInfo;
-
-	int m2DWidth = -1, m2DHeight = -1;
 
 	unsigned int mBlockSize;
 

@@ -9,9 +9,9 @@
 #include "hw_renderstate.h"
 #include <list>
 
-#define SHADER_MIN_REQUIRED_TEXTURE_LAYERS 8
+#define SHADER_MIN_REQUIRED_TEXTURE_LAYERS 11
 
-class VulkanFrameBuffer;
+class VulkanRenderDevice;
 class VulkanDevice;
 class VulkanShader;
 class VkPPShader;
@@ -50,6 +50,9 @@ struct PushConstants
 	// Blinn glossiness and specular level
 	FVector2 uSpecularMaterial;
 
+	// bone animation
+	int uBoneIndexBase;
+
 	int uDataIndex;
 	int padding1, padding2, padding3;
 };
@@ -64,7 +67,7 @@ public:
 class VkShaderManager
 {
 public:
-	VkShaderManager(VulkanFrameBuffer* fb);
+	VkShaderManager(VulkanRenderDevice* fb);
 	~VkShaderManager();
 
 	void Deinit();
@@ -86,7 +89,7 @@ private:
 	FString LoadPublicShaderLump(const char *lumpname);
 	FString LoadPrivateShaderLump(const char *lumpname);
 
-	VulkanFrameBuffer* fb = nullptr;
+	VulkanRenderDevice* fb = nullptr;
 
 	std::vector<VkShaderProgram> mMaterialShaders[MAX_PASS_TYPES];
 	std::vector<VkShaderProgram> mMaterialShadersNAT[MAX_PASS_TYPES];

@@ -98,9 +98,9 @@ public:
 		}
 	}
 
-	TArray<uint8_t> CreatePalettedPixels(int conversion) override
+	PalettedPixels CreatePalettedPixels(int conversion, int frame = 0) override
 	{
-		TArray<uint8_t> Pix(512, true);
+		PalettedPixels Pix(512);
 		if (conversion == luminance)
 		{
 			memcpy(Pix.Data(), Pixels, 512);
@@ -118,7 +118,7 @@ public:
 		return Pix;
 	}
 
-	int CopyPixels(FBitmap *bmp, int conversion) override
+	int CopyPixels(FBitmap *bmp, int conversion, int frame = 0) override
 	{
 		bmp->CopyPixelData(0, 0, Pixels, Width, Height, Height, 1, 0, GPalette.GrayRamp.Palette);
 		return 0;

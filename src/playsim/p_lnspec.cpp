@@ -78,7 +78,7 @@ static const uint8_t ChangeMap[8] = { 0, 1, 5, 3, 7, 2, 6, 0 };
 #define SPEED(a)		((a) / 8.)
 #define TICS(a)			(((a)*TICRATE)/35)
 #define OCTICS(a)		(((a)*TICRATE)/8)
-#define BYTEANGLE(a)	((a) * (360./256.))
+#define BYTEANGLE(a)	DAngle::fromDeg((a) * (360./256.))
 #define CRUSH(a)		((a) > 0? (a) : -1)
 #define CHANGE(a)		(((a) >= 0 && (a)<=7)? ChangeMap[a]:0)
 
@@ -175,7 +175,7 @@ FUNC(LS_Polyobj_MoveToSpot)
 	auto iterator = Level->GetActorIterator(arg2);
 	AActor *spot = iterator.Next();
 	if (spot == NULL) return false;
-	return EV_MovePolyTo (Level, ln, arg0, SPEED(arg1), spot->Pos(), false);
+	return EV_MovePolyTo (Level, ln, arg0, SPEED(arg1), spot->Pos().XY(), false);
 }
 
 FUNC(LS_Polyobj_DoorSwing)
@@ -226,7 +226,7 @@ FUNC(LS_Polyobj_OR_MoveToSpot)
 	auto iterator = Level->GetActorIterator(arg2);
 	AActor *spot = iterator.Next();
 	if (spot == NULL) return false;
-	return EV_MovePolyTo (Level, ln, arg0, SPEED(arg1), spot->Pos(), true);
+	return EV_MovePolyTo (Level, ln, arg0, SPEED(arg1), spot->Pos().XY(), true);
 }
 
 FUNC(LS_Polyobj_Stop)
@@ -941,6 +941,13 @@ FUNC(LS_Generic_Crusher2)
 						 SPEED(arg2), 0, arg4, arg3 ? 2 : 0, 0, DCeiling::ECrushMode::crushHexen);
 }
 
+FUNC(LS_Generic_CrusherDist)
+// Generic_CrusherDist (tag, dnspeed, upspeed, silent, damage)
+{
+	return Level->EV_DoCeiling(DCeiling::ceilCrushAndRaise, ln, arg0, SPEED(arg1),
+		SPEED(arg2), 8, arg4, arg3 ? 2 : 0, 0, (arg1 <= 24 && arg2 <= 24) ? DCeiling::ECrushMode::crushSlowdown : DCeiling::ECrushMode::crushDoom);
+}
+
 FUNC(LS_Plat_PerpetualRaise)
 // Plat_PerpetualRaise (tag, speed, delay)
 {
@@ -1075,7 +1082,7 @@ FUNC(LS_Generic_Lift)
 FUNC(LS_Exit_Normal)
 // Exit_Normal (position)
 {
-	if (Level->CheckIfExitIsGood (it, FindLevelInfo(Level->NextMap)))
+	if (Level->CheckIfExitIsGood (it, FindLevelInfo(Level->NextMap.GetChars())))
 	{
 		Level->ExitLevel (arg0, false);
 		return true;
@@ -1103,7 +1110,7 @@ FUNC(LS_Teleport_NewMap)
 
 		if (info && Level->CheckIfExitIsGood (it, info))
 		{
-			Level->ChangeLevel(info->MapName, arg1, arg2 ? CHANGELEVEL_KEEPFACING : 0);
+			Level->ChangeLevel(info->MapName.GetChars(), arg1, arg2 ? CHANGELEVEL_KEEPFACING : 0);
 			return true;
 		}
 	}
@@ -1113,7 +1120,7 @@ FUNC(LS_Teleport_NewMap)
 FUNC(LS_Teleport)
 // Teleport (tid, sectortag, bNoSourceFog)
 {
-	int flags = TELF_DESTFOG;
+	int flags = TELF_DESTFOG | TELF_FDCOMPAT;
 	if (!arg2)
 	{
 		flags |= TELF_SOURCEFOG;
@@ -1736,13 +1743,13 @@ FUNC(LS_Thing_Hate)
 FUNC(LS_Thing_ProjectileAimed)
 // Thing_ProjectileAimed (tid, type, speed, target, newtid)
 {
-	return Level->EV_Thing_Projectile (arg0, it, arg1, NULL, 0., SPEED(arg2), 0, arg3, it, 0, arg4, false);
+	return Level->EV_Thing_Projectile (arg0, it, arg1, NULL, nullAngle, SPEED(arg2), 0, arg3, it, 0, arg4, false);
 }
 
 FUNC(LS_Thing_ProjectileIntercept)
 // Thing_ProjectileIntercept (tid, type, speed, target, newtid)
 {
-	return Level->EV_Thing_Projectile (arg0, it, arg1, NULL, 0., SPEED(arg2), 0, arg3, it, 0, arg4, true);
+	return Level->EV_Thing_Projectile (arg0, it, arg1, NULL, nullAngle, SPEED(arg2), 0, arg3, it, 0, arg4, true);
 }
 
 // [BC] added newtid for next two
@@ -1761,7 +1768,7 @@ FUNC(LS_Thing_SpawnNoFog)
 FUNC(LS_Thing_SpawnFacing)
 // Thing_SpawnFacing (tid, type, nofog, newtid)
 {
-	return Level->EV_Thing_Spawn (arg0, it, arg1, 1000000., arg2 ? false : true, arg3);
+	return Level->EV_Thing_Spawn (arg0, it, arg1, DAngle::fromDeg(1000000.), arg2 ? false : true, arg3);
 }
 
 FUNC(LS_Thing_Raise)
@@ -1870,7 +1877,7 @@ FUNC(LS_Thing_SetTranslation)
 // Thing_SetTranslation (tid, range)
 {
 	auto iterator = Level->GetActorIterator(arg0);
-	int range;
+	FTranslationID range;
 	AActor *target;
 	bool ok = false;
 
@@ -1888,7 +1895,7 @@ FUNC(LS_Thing_SetTranslation)
 	}
 	else
 	{
-		range = 0;
+		range = NO_TRANSLATION;
 	}
 
 	if (arg0 == 0)
@@ -1896,7 +1903,7 @@ FUNC(LS_Thing_SetTranslation)
 		if (it != NULL)
 		{
 			ok = true;
-			it->Translation = range==0? it->GetDefault()->Translation : range;
+			it->Translation = range == NO_TRANSLATION ? it->GetDefault()->Translation : range;
 		}
 	}
 	else
@@ -1904,7 +1911,7 @@ FUNC(LS_Thing_SetTranslation)
 		while ( (target = iterator.Next ()) )
 		{
 			ok = true;
-			target->Translation = range==0? target->GetDefault()->Translation : range;
+			target->Translation = range == NO_TRANSLATION ? target->GetDefault()->Translation : range;
 		}
 	}
 
@@ -1921,11 +1928,11 @@ FUNC(LS_ACS_Execute)
 
 	if (arg1 == 0)
 	{
-		mapname = Level->MapName;
+		mapname = Level->MapName.GetChars();
 	}
 	else if ((info = FindLevelByNum(arg1)) != NULL)
 	{
-		mapname = info->MapName;
+		mapname = info->MapName.GetChars();
 	}
 	else
 	{
@@ -1944,11 +1951,11 @@ FUNC(LS_ACS_ExecuteAlways)
 
 	if (arg1 == 0)
 	{
-		mapname = Level->MapName;
+		mapname = Level->MapName.GetChars();
 	}
 	else if ((info = FindLevelByNum(arg1)) != NULL)
 	{
-		mapname = info->MapName;
+		mapname = info->MapName.GetChars();
 	}
 	else
 	{
@@ -1984,7 +1991,7 @@ FUNC(LS_ACS_ExecuteWithResult)
 	int args[4] = { arg1, arg2, arg3, arg4 };
 	int flags = (backSide ? ACS_BACKSIDE : 0) | ACS_ALWAYS | ACS_WANTRESULT;
 
-	return P_StartScript (Level, it, ln, arg0, Level->MapName, args, 4, flags);
+	return P_StartScript (Level, it, ln, arg0, Level->MapName.GetChars(), args, 4, flags);
 }
 
 FUNC(LS_ACS_Suspend)
@@ -1993,9 +2000,9 @@ FUNC(LS_ACS_Suspend)
 	level_info_t *info;
 
 	if (arg1 == 0)
-		P_SuspendScript (Level, arg0, Level->MapName);
+		P_SuspendScript (Level, arg0, Level->MapName.GetChars());
 	else if ((info = FindLevelByNum (arg1)) )
-		P_SuspendScript (Level, arg0, info->MapName);
+		P_SuspendScript (Level, arg0, info->MapName.GetChars());
 
 	return true;
 }
@@ -2006,9 +2013,9 @@ FUNC(LS_ACS_Terminate)
 	level_info_t *info;
 
 	if (arg1 == 0)
-		P_TerminateScript (Level, arg0, Level->MapName);
+		P_TerminateScript (Level, arg0, Level->MapName.GetChars());
 	else if ((info = FindLevelByNum (arg1)) )
-		P_TerminateScript (Level, arg0, info->MapName);
+		P_TerminateScript (Level, arg0, info->MapName.GetChars());
 
 	return true;
 }
@@ -2161,7 +2168,7 @@ FUNC(LS_Light_Stop)
 FUNC(LS_Radius_Quake)
 // Radius_Quake (intensity, duration, damrad, tremrad, tid)
 {
-	return P_StartQuake (Level, it, arg4, arg0, arg1, arg2*64, arg3*64, "world/quake");
+	return P_StartQuake (Level, it, arg4, (double)arg0, arg1, arg2*64, arg3*64, S_FindSound("world/quake"));
 }
 
 FUNC(LS_UsePuzzleItem)
@@ -2583,8 +2590,8 @@ FUNC(LS_Sector_SetCeilingScale2)
 FUNC(LS_Sector_SetRotation)
 // Sector_SetRotation (tag, floor-angle, ceiling-angle)
 {
-	DAngle ceiling = (double)arg2;
-	DAngle floor = (double)arg1;
+	DAngle ceiling = DAngle::fromDeg(arg2);
+	DAngle floor = DAngle::fromDeg(arg1);
 
 	auto itr = Level->GetSectorTagIterator(arg0);
 	int secnum;
@@ -2736,40 +2743,47 @@ FUNC(LS_Line_SetTextureScale)
 FUNC(LS_Line_SetBlocking)
 // Line_SetBlocking (id, setflags, clearflags)
 {
-	static const int flagtrans[] =
-	{
-		ML_BLOCKING,
-		ML_BLOCKMONSTERS,
-		ML_BLOCK_PLAYERS,
-		ML_BLOCK_FLOATERS,
-		ML_BLOCKPROJECTILE,
-		ML_BLOCKEVERYTHING,
-		ML_RAILING,
-		ML_BLOCKUSE,
-		ML_BLOCKSIGHT,
-		ML_BLOCKHITSCAN,
-		ML_SOUNDBLOCK,
-		-1
-	};
+    struct FlagTransEntry
+    {
+        int fieldIndex, bitmask;
+    };
 
-	if (arg0 == 0) return false;
+    static const FlagTransEntry flagtrans[] =
+    {
+        {0, ML_BLOCKING},
+        {0, ML_BLOCKMONSTERS},
+        {0, ML_BLOCK_PLAYERS},
+        {0, ML_BLOCK_FLOATERS},
+        {0, ML_BLOCKPROJECTILE},
+        {0, ML_BLOCKEVERYTHING},
+        {0, ML_RAILING},
+        {0, ML_BLOCKUSE},
+        {0, ML_BLOCKSIGHT},
+        {0, ML_BLOCKHITSCAN},
+        {0, ML_SOUNDBLOCK},
+        {1, ML2_BLOCKLANDMONSTERS},
+        {-1, -1},
+    };
 
-	int setflags = 0;
-	int clearflags = 0;
+    if (arg0 == 0) return false;
 
-	for(int i = 0; flagtrans[i] != -1; i++, arg1 >>= 1, arg2 >>= 1)
-	{
-		if (arg1 & 1) setflags |= flagtrans[i];
-		if (arg2 & 1) clearflags |= flagtrans[i];
-	}
+    int setflags[2] = {};
+    int clearflags[2] = {};
 
-	auto itr = Level->GetLineIdIterator(arg0);
-	int line;
-	while ((line = itr.Next()) >= 0)
-	{
-		Level->lines[line].flags = (Level->lines[line].flags & ~clearflags) | setflags;
-	}
-	return true;
+    for (int i = 0; flagtrans[i].bitmask != -1; i++, arg1 >>= 1, arg2 >>= 1)
+    {
+        if (arg1 & 1) setflags[flagtrans[i].fieldIndex] |= flagtrans[i].bitmask;
+        if (arg2 & 1) clearflags[flagtrans[i].fieldIndex] |= flagtrans[i].bitmask;
+    }
+
+    auto itr = Level->GetLineIdIterator(arg0);
+    int line;
+    while ((line = itr.Next()) >= 0)
+    {
+        Level->lines[line].flags = (Level->lines[line].flags & ~clearflags[0]) | setflags[0];
+        Level->lines[line].flags2 = (Level->lines[line].flags2 & ~clearflags[1]) | setflags[1];
+    }
+    return true;
 }
 
 FUNC(LS_Line_SetAutomapFlags)
@@ -2907,7 +2921,14 @@ enum
 	PROP_UNUSED1,
 	PROP_UNUSED2,
 	PROP_SPEED,
+
 	PROP_BUDDHA,
+	PROP_BUDDHA2,
+	PROP_FRIGHTENING,
+	PROP_NOCLIP,
+	PROP_NOCLIP2,
+	PROP_GODMODE,
+	PROP_GODMODE2,
 };
 
 FUNC(LS_SetPlayerProperty)
@@ -3028,24 +3049,43 @@ FUNC(LS_SetPlayerProperty)
 	// Set or clear a flag
 	switch (arg2)
 	{
-	case PROP_BUDDHA:
-		mask = CF_BUDDHA;
-		break;
-	case PROP_FROZEN:
-		mask = CF_FROZEN;
-		break;
-	case PROP_NOTARGET:
-		mask = CF_NOTARGET;
-		break;
-	case PROP_INSTANTWEAPONSWITCH:
-		mask = CF_INSTANTWEAPSWITCH;
-		break;
-	case PROP_FLY:
-		//mask = CF_FLY;
-		break;
-	case PROP_TOTALLYFROZEN:
-		mask = CF_TOTALLYFROZEN;
-		break;
+		case PROP_BUDDHA:
+			mask = CF_BUDDHA;
+			break;
+		case PROP_BUDDHA2:
+			mask = CF_BUDDHA2;
+			break;
+		case PROP_FROZEN:
+			mask = CF_FROZEN;
+			break;
+		case PROP_NOTARGET:
+			mask = CF_NOTARGET;
+			break;
+		case PROP_INSTANTWEAPONSWITCH:
+			mask = CF_INSTANTWEAPSWITCH;
+			break;
+		//CF_FLY has special handling
+		case PROP_FLY:
+			//mask = CF_FLY;
+			break;
+		case PROP_TOTALLYFROZEN:
+			mask = CF_TOTALLYFROZEN;
+			break;
+		case PROP_FRIGHTENING:
+			mask = CF_FRIGHTENING;
+			break;
+		case PROP_NOCLIP:
+			mask = CF_NOCLIP;
+			break;
+		case PROP_NOCLIP2:
+			mask = CF_NOCLIP|CF_NOCLIP2; //Both must be on.
+			break;
+		case PROP_GODMODE:
+			mask = CF_GODMODE;
+			break;
+		case PROP_GODMODE2:
+			mask = CF_GODMODE2;
+			break;
 	}
 
 	if (arg0 == 0)
@@ -3140,7 +3180,7 @@ FUNC(LS_Autosave)
 	if (gameaction != ga_savegame)
 	{
 		Level->flags2 &= ~LEVEL2_NOAUTOSAVEHINT;
-		Net_WriteByte (DEM_CHECKAUTOSAVE);
+		Net_WriteInt8 (DEM_CHECKAUTOSAVE);
 	}
 	return true;
 }
@@ -3211,13 +3251,14 @@ FUNC(LS_SendToCommunicator)
 		if (it->CheckLocalView())
 		{
 			S_StopSound (CHAN_VOICE);
-			it->player->SetSubtitle(arg0, name);
-			S_Sound (CHAN_VOICE, 0, name, 1, ATTN_NORM);
+			auto snd = S_FindSound(name);
+			it->player->SetSubtitle(arg0, snd);
+			S_Sound (CHAN_VOICE, 0, snd, 1, ATTN_NORM);
 
 			// Get the message from the LANGUAGE lump.
 			FString msg;
 			msg.Format("TXT_COMM%d", arg2);
-			const char *str = GStrings[msg];
+			const char *str = GStrings.CheckString(msg.GetChars());
 			if (str != NULL)
 			{
 				Printf (PRINT_CHAT, "%s\n", str);
@@ -3234,7 +3275,7 @@ FUNC(LS_ForceField)
 	if (it != NULL)
 	{
 		P_DamageMobj (it, NULL, NULL, 16, NAME_None);
-		it->Thrust(it->Angles.Yaw + 180, 7.8125);
+		it->Thrust(it->Angles.Yaw + DAngle::fromDeg(180), 7.8125);
 	}
 	return true;
 }
@@ -3308,7 +3349,7 @@ FUNC(LS_GlassBreak)
 				}
 				if (glass != nullptr)
 				{
-					glass->Angles.Yaw = pr_glass() * (360 / 256.);
+					glass->Angles.Yaw = DAngle::fromDeg(pr_glass() * (360 / 256.));
 					glass->VelFromAngle(pr_glass() & 3);
 					glass->Vel.Z = (pr_glass() & 7);
 					// [RH] Let the shards stick around longer than they did in Strife.
@@ -3829,6 +3870,7 @@ static lnSpecFunc LineSpecials[] =
 	/* 281 */ LS_Line_SetAutomapFlags,
 	/* 282 */ LS_Line_SetAutomapStyle,
 	/* 283 */ LS_Polyobj_StopSound,
+	/* 284 */ LS_Generic_CrusherDist
 };
 
 #define DEFINE_SPECIAL(name, num, min, max, mmax) {#name, num, min, max, mmax},

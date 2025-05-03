@@ -188,7 +188,7 @@ FString RemoveSamplerBindings(FString code, TArray<std::pair<FString, int>> &sam
 						FString type = NextGlslToken(chars, len, pos);
 						FString identifier = NextGlslToken(chars, len, pos);
 
-						isSamplerUniformName = uniform.Compare("uniform") == 0 && isShaderType(type);
+						isSamplerUniformName = uniform.Compare("uniform") == 0 && isShaderType(type.GetChars());
 						if (isSamplerUniformName)
 						{
 							samplerstobind.Push(std::make_pair(identifier, val));
@@ -246,7 +246,7 @@ FString RemoveLayoutLocationDecl(FString code, const char *inoutkeyword)
 
 		// keyword following the declaration?
 		bool keywordFound = true;
-		long i;
+		ptrdiff_t i;
 		for (i = 0; inoutkeyword[i] != 0; i++)
 		{
 			if (chars[endIndex + i] != inoutkeyword[i])
@@ -299,6 +299,7 @@ const FEffectShader effectshaders[] =
 	{ "spheremap", "shaders/glsl/main.vp", "shaders/glsl/main.fp", "shaders/glsl/func_normal.fp", "shaders/glsl/material_normal.fp", "#define SPHEREMAP\n#define NO_ALPHATEST\n" },
 	{ "burn", "shaders/glsl/main.vp", "shaders/glsl/burn.fp", nullptr, nullptr, "#define SIMPLE\n#define NO_ALPHATEST\n" },
 	{ "stencil", "shaders/glsl/main.vp", "shaders/glsl/stencil.fp", nullptr, nullptr, "#define SIMPLE\n#define NO_ALPHATEST\n" },
+	{ "dithertrans", "shaders/glsl/main.vp", "shaders/glsl/main.fp", "shaders/glsl/func_normal.fp", "shaders/glsl/material_normal.fp", "#define NO_ALPHATEST\n#define DITHERTRANS\n" },
 };
 
 int DFrameBuffer::GetShaderCount()

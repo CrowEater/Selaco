@@ -102,7 +102,7 @@ struct svalue_t
 	}
 
 	svalue_t(const svalue_t & other) = default;
-
+	svalue_t& operator=(const svalue_t& other) = default;
 	void setInt(int ip)
 	{
 		value.i = ip;
@@ -273,7 +273,7 @@ public:
 
 	CFsError(const FString &in)
 	{
-		strncpy(msg, in, 2047);
+		strncpy(msg, in.GetChars(), 2047);
 		msg[2047]=0;
 	}
 };
@@ -701,7 +701,7 @@ public:
 	void Tick();
 	void InitFunctions();
 	size_t PropagateMark();
-	size_t PointerSubstitution (DObject *old, DObject *notOld);
+	size_t PointerSubstitution (DObject *old, DObject *notOld, bool nullOnFail);
 	bool wait_finished(DRunningScript *script);
 	void AddRunningScript(DRunningScript *runscr);
 

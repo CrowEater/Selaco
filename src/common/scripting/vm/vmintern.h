@@ -126,6 +126,7 @@ enum
 	CAST_So2S,
 	CAST_V22S,
 	CAST_V32S,
+	CAST_V42S,
 	CAST_SID2S,
 	CAST_TID2S,
 
@@ -473,6 +474,8 @@ public:
 	VM_UBYTE NumArgs;		// Number of arguments this function takes
 	TArray<FTypeAndOffset> SpecialInits;	// list of all contents on the extra stack which require construction and destruction
 
+	bool blockJit = false; // function triggers Jit bugs, block compilation until bugs are fixed
+
 	void InitExtra(void *addr);
 	void DestroyExtra(void *addr);
 	int AllocExtraStack(PType *type);
@@ -480,4 +483,6 @@ public:
 
 private:
 	static int FirstScriptCall(VMFunction *func, VMValue *params, int numparams, VMReturn *ret, int numret);
+	void JitCompile();
+	friend class FFunctionBuildList;
 };

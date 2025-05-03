@@ -1,3 +1,4 @@
+#pragma once
 #include <string>
 #include "zstring.h"
 
@@ -29,7 +30,7 @@ public:
 	void Draw(int x, int y, int scale, bool cursor);
 	unsigned CalcCellSize(unsigned length);
 	unsigned CharsForCells(unsigned cellin, bool *overflow);
-	void MakeStartPosGood();;
+	void MakeStartPosGood();
 	void CursorStart();
 	void CursorEnd();
 

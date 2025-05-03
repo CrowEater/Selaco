@@ -25,17 +25,16 @@ public:
 	};
 
 	bool Load(const char * fn, int lumpnum, const char * buffer, int length) override;
-	int FindFrame(const char * name) override;
-	void RenderFrame(FModelRenderer *renderer, FGameTexture * skin, int frame, int frame2, double inter, int translation=0) override;
+	int FindFrame(const char* name, bool nodefault) override;
+	void RenderFrame(FModelRenderer *renderer, FGameTexture * skin, int frame, int frame2, double inter, FTranslationID translation, const FTextureID* surfaceskinids, const TArray<VSMatrix>& boneData, int boneStartPosition) override;
 	void BuildVertexBuffer(FModelRenderer *renderer) override;
-	void AddSkins(uint8_t *hitlist) override;
+	void AddSkins(uint8_t *hitlist, const FTextureID* surfaceskinids) override;
 	void LoadGeometry();
 	void UnloadGeometry();
 	FUE1Model()
 	{
 		mDataLump = -1;
 		mAnivLump = -1;
-		mDataLoaded = false;
 		dhead = NULL;
 		dpolys = NULL;
 		ahead = NULL;
@@ -49,7 +48,6 @@ public:
 
 private:
 	int mDataLump, mAnivLump;
-	bool mDataLoaded;
 
 	// raw data structures
 	struct d3dhead
@@ -72,15 +70,15 @@ private:
 	{
 		uint16_t numframes, framesize;
 	};
-	d3dhead * dhead;
-	d3dpoly * dpolys;
-	a3dhead * ahead;
-	uint32_t * averts;
+	const d3dhead * dhead;
+	const d3dpoly * dpolys;
+	const a3dhead * ahead;
+	const uint32_t * averts;
 	struct dxvert
 	{
 		int16_t x, y, z, pad;
 	};
-	dxvert * dxverts;
+	const dxvert * dxverts;
 
 	// converted data structures
 	struct UE1Vertex
@@ -105,9 +103,10 @@ private:
 	int numFrames;
 	int numPolys;
 	int numGroups;
-	TArray<int> specialPolys;	// for future model attachment support, unused for now
+	bool hasWeaponTriangle;
 
 	TArray<UE1Vertex> verts;
 	TArray<UE1Poly> polys;
 	TArray<UE1Group> groups;
+	//TArray<TRS> weapondata;	// pseudo-bone generated from weapon triangle (not yet implemented)
 };

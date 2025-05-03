@@ -90,7 +90,7 @@ enum EWRF_Options
 
 // [SO] 1=Weapons states are all 1 tick
 //		2=states with a function 1 tick, others 0 ticks.
-CVAR(Int, sv_fastweapons, false, CVAR_SERVERINFO);
+CVAR(Int, sv_fastweapons, 0, CVAR_SERVERINFO);
 
 // PRIVATE DATA DEFINITIONS ------------------------------------------------
 
@@ -171,7 +171,7 @@ DPSprite::DPSprite(player_t *owner, AActor *caller, int id)
   InterpolateTic(false),
   firstTic(true),
   Tics(0),
-  Translation(0),
+  Translation(NO_TRANSLATION),
   Flags(0),
   Owner(owner),
   State(nullptr),
@@ -182,7 +182,7 @@ DPSprite::DPSprite(player_t *owner, AActor *caller, int id)
 {
 	Caller = caller;
 	baseScale = {1.0, 1.2};
-	rotation = 0.;
+	rotation = nullAngle;
 	scale = {1.0, 1.0};
 	pivot = {0.0, 0.0};
 	for (int i = 0; i < 4; i++)
@@ -326,6 +326,13 @@ DPSprite *player_t::GetPSprite(PSPLayers layer)
 	else
 	{
 		oldcaller = pspr->Caller;
+
+		// update scaling properties here
+		if (newcaller != nullptr && newcaller->IsKindOf(NAME_Weapon))
+		{
+			pspr->baseScale.X = newcaller->FloatVar(NAME_WeaponScaleX);
+			pspr->baseScale.Y = newcaller->FloatVar(NAME_WeaponScaleY);
+		}
 	}
 
 	// Always update the caller here in case we switched weapon
@@ -463,7 +470,7 @@ void DPSprite::NewTick()
 
 				// @Cockatrice - Add the current visible frame to the frame list, so the renderer can look backwards
 				// while waiting for frames to load in the background
-				FTextureID lump = sprites[pspr->GetSprite()].GetSpriteFrame(pspr->GetFrame(), 0, 0., nullptr);
+				FTextureID lump = sprites[pspr->GetSprite()].GetSpriteFrame(pspr->GetFrame(), 0, nullAngle, nullptr);
 				if(lump.isValid() && lump.GetIndex() != 0 && (pspr->LastPatches.pos < 0 || lump.GetIndex() != pspr->LastPatches[0])) pspr->LastPatches.add(lump.GetIndex());
 
 				pspr = pspr->Next;
@@ -561,7 +568,7 @@ void DPSprite::SetState(FState *newstate, bool pending)
 			{
 				// If an unsafe function (i.e. one that accesses user variables) is being detected, print a warning once and remove the bogus function. We may not call it because that would inevitably crash.
 				Printf(TEXTCOLOR_RED "Unsafe state call in state %sd to %s which accesses user variables. The action function has been removed from this state\n", 
-					FState::StaticGetStateName(newstate).GetChars(), newstate->ActionFunc->PrintableName.GetChars());
+					FState::StaticGetStateName(newstate).GetChars(), newstate->ActionFunc->PrintableName);
 				newstate->ActionFunc = nullptr;
 			}
 			if (newstate->CallAction(Owner->mo, Caller, &stp, &nextstate))
@@ -638,7 +645,7 @@ void P_GetCameraOffsets(player_t *player, DVector3 &angleOffsets, DVector3 &posO
 
 		// Add level tilt to the offsets
 		if (worldTilt && g_leveltilting) {
-			auto wyaw = player->mo->Angles.Yaw + level.tiltAngle;
+			auto wyaw = player->mo->Angles.Yaw + DAngle::fromDeg(level.tiltAngle);
 			angleOffsets.Z += wyaw.Cos() * level.tilt;
 			angleOffsets.Y += -wyaw.Sin() * level.tilt;
 		}
@@ -666,11 +673,58 @@ void P_BobWeapon (player_t *player, float *x, float *y, double ticfrac)
 		DVector2 result;
 		VMReturn ret(&result);
 		VMCall(func, param, 2, &ret, 1);
+		
+		auto inv = player->mo->Inventory;
+		while(inv != nullptr && !(inv->ObjectFlags & OF_EuthanizeMe)) // same loop as ModifyDamage, except it actually checks if it's overriden before calling
+		{
+			auto nextinv = inv->Inventory;
+			IFOVERRIDENVIRTUALPTRNAME(inv, NAME_Inventory, ModifyBob)
+			{
+				VMValue param[] = { (DObject*)inv, result.X, result.Y, ticfrac };
+				VMCall(func, param, 4, &ret, 1);
+			}
+			inv = nextinv;
+		}
+
 		*x = (float)result.X;
 		*y = (float)result.Y;
 		return;
 	}
 	*x = *y = 0;
+}
+
+void P_BobWeapon3D (player_t *player, FVector3 *translation, FVector3 *rotation, double ticfrac)
+{
+	IFVIRTUALPTRNAME(player->mo, NAME_PlayerPawn, BobWeapon3D)
+	{
+		VMValue param[] = { player->mo, ticfrac };
+		DVector3 t, r;
+		VMReturn returns[2];
+		returns[0].Vec3At(&t);
+		returns[1].Vec3At(&r);
+		VMCall(func, param, 2, returns, 2);
+
+		auto inv = player->mo->Inventory;
+		while(inv != nullptr && !(inv->ObjectFlags & OF_EuthanizeMe))
+		{
+			auto nextinv = inv->Inventory;
+			IFOVERRIDENVIRTUALPTRNAME(inv, NAME_Inventory, ModifyBob3D)
+			{
+				VMValue param[] = { (DObject*)inv, t.X, t.Y, t.Z, r.X, r.Y, r.Z, ticfrac };
+				VMCall(func, param, 8, returns, 2);
+			}
+			inv = nextinv;
+		}
+
+		translation->X = (float)t.X;
+		translation->Y = (float)t.Y;
+		translation->Z = (float)t.Z;
+		rotation->X = (float)r.X;
+		rotation->Y = (float)r.Y;
+		rotation->Z = (float)r.Z;
+		return;
+	}
+	*translation = *rotation = {};
 }
 
 //---------------------------------------------------------------------------
@@ -971,9 +1025,9 @@ DEFINE_ACTION_FUNCTION(AActor, A_OverlayPivotAlign)
 	if (pspr != nullptr)
 	{
 		if (halign >= PSPA_LEFT && halign <= PSPA_RIGHT)
-			pspr->HAlign |= halign;
+			pspr->HAlign = halign;
 		if (valign >= PSPA_TOP && valign <= PSPA_BOTTOM)
-			pspr->VAlign |= valign;
+			pspr->VAlign = valign;
 	}
 	return 0;
 }
@@ -1001,12 +1055,12 @@ DEFINE_ACTION_FUNCTION(AActor, A_OverlayTranslation)
 		{
 			// an empty string resets to the default
 			// (unlike AActor::SetTranslation, there is no Default block for PSprites, so just set the translation to 0)
-			pspr->Translation = 0;
+			pspr->Translation = NO_TRANSLATION;
 			return 0;
 		}
 
-		int tnum = R_FindCustomTranslation(trname);
-		if (tnum >= 0)
+		auto tnum = R_FindCustomTranslation(trname);
+		if (tnum != INVALID_TRANSLATION)
 		{
 			pspr->Translation = tnum;
 		}
@@ -1236,8 +1290,8 @@ DAngle P_BulletSlope (AActor *mo, FTranslatedLineTarget *pLineTarget, int aimfla
 	i = 2;
 	do
 	{
-		an = mo->Angles.Yaw + angdiff[i];
-		pitch = P_AimLineAttack (mo, an, 16.*64, pLineTarget, 0., aimflags);
+		an = mo->Angles.Yaw + DAngle::fromDeg(angdiff[i]);
+		pitch = P_AimLineAttack (mo, an, 16.*64, pLineTarget, nullAngle, aimflags);
 
 		if (mo->player != nullptr &&
 			mo->Level->IsFreelookAllowed() &&
@@ -1255,7 +1309,7 @@ DEFINE_ACTION_FUNCTION(AActor, BulletSlope)
 	PARAM_SELF_PROLOGUE(AActor);
 	PARAM_POINTER(t, FTranslatedLineTarget);
 	PARAM_INT(aimflags);
-	ACTION_RETURN_FLOAT(P_BulletSlope(self, t, aimflags).Degrees);
+	ACTION_RETURN_FLOAT(P_BulletSlope(self, t, aimflags).Degrees());
 }
 
 //------------------------------------------------------------------------
@@ -1356,25 +1410,35 @@ void P_SetSafeFlash(AActor *weapon, player_t *player, FState *flashstate, int in
 					P_SetPsprite(player, PSP_FLASH, flashstate + index, true);
 					return;
 				}
-				else
+				else if (flashstate->DehIndex < 0)
 				{
-					// oh, no! The state is beyond the end of the state table so use the original flash state.
+					// oh, no! The state is beyond the end of the state table so use the original flash state if it does not have a Dehacked index.
 					P_SetPsprite(player, PSP_FLASH, flashstate, true);
 					return;
 				}
+				else break; // no need to continue.
 			}
 			// try again with parent class
 			cls = static_cast<PClassActor *>(cls->ParentClass);
 		}
-		// if we get here the state doesn't seem to belong to any class in the inheritance chain
-		// This can happen with Dehacked if the flash states are remapped. 
-		// The only way to check this would be to go through all Dehacked modifiable actors, convert
-		// their states into a single flat array and find the correct one.
-		// Rather than that, just check to make sure it belongs to something.
-		if (FState::StaticFindStateOwner(flashstate + index) == NULL)
-		{ // Invalid state. With no index offset, it should at least be valid.
-			index = 0;
+		
+		// if we get here the target state doesn't belong to any class in the inheritance chain.
+		// This can happen with Dehacked if the flash states are remapped.
+		// In this case we should check the Dehacked state map to get the proper state.
+		if (flashstate->DehIndex >= 0)
+		{
+			auto pTargetstate = dehExtStates.CheckKey(flashstate->DehIndex + index);
+			if (pTargetstate)
+			{
+				P_SetPsprite(player, PSP_FLASH, *pTargetstate, true);
+				return;
+			}
 		}
+
+		// If we still haven't found anything here, just use the base flash state.
+		// Normally this code should not be reachable.
+		index = 0;
+
 	}
 	P_SetPsprite(player, PSP_FLASH, flashstate + index, true);
 }

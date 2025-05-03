@@ -6,7 +6,7 @@
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU Lesser General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
+// the Free Software Foundation, either version 2 of the License, or
 // (at your option) any later version.
 //
 // This program is distributed in the hope that it will be useful,
@@ -119,7 +119,7 @@ static FString CalcProgramBinaryChecksum(const FString &vertex, const FString &f
 static FString CreateProgramCacheName(bool create)
 {
 	FString path = M_GetCachePath(create);
-	if (create) CreatePath(path);
+	if (create) CreatePath(path.GetChars());
 	path << "/shadercache.zdsc";
 	return path;
 }
@@ -135,7 +135,7 @@ static void LoadShaders()
 	{
 		FString path = CreateProgramCacheName(false);
 		FileReader fr;
-		if (!fr.OpenFile(path))
+		if (!fr.OpenFile(path.GetChars()))
 			I_Error("Could not open shader file");
 
 		char magic[4];
@@ -176,7 +176,7 @@ static void LoadShaders()
 static void SaveShaders()
 {
 	FString path = CreateProgramCacheName(true);
-	std::unique_ptr<FileWriter> fw(FileWriter::Open(path));
+	std::unique_ptr<FileWriter> fw(FileWriter::Open(path.GetChars()));
 	if (fw)
 	{
 		uint32_t count = (uint32_t)ShaderCache.size();
@@ -234,7 +234,7 @@ bool FShader::Configure(const char* name, const char* vert_prog_lump, const char
 void FShader::LoadVariant()
 {
 	//mDefinesBase
-	Load(mName.GetChars(), mVertProg, mFragProg, mFragProg2, mLightProg, mDefinesBase);
+	Load(mName.GetChars(), mVertProg.GetChars(), mFragProg.GetChars(), mFragProg2.GetChars(), mLightProg.GetChars(), mDefinesBase.GetChars());
 }
 
 bool FShader::Load(const char * name, const char * vert_prog_lump_, const char * frag_prog_lump_, const char * proc_prog_lump_, const char * light_fragprog_, const char * defines)
@@ -266,6 +266,9 @@ bool FShader::Load(const char * name, const char * vert_prog_lump_, const char *
 
 		// light buffers
 		uniform vec4 lights[MAXIMUM_LIGHT_VECTORS];
+
+		// bone matrix buffers
+		uniform mat4 bones[MAXIMUM_LIGHT_VECTORS];
 
 		uniform	mat4 ProjectionMatrix;
 		uniform	mat4 ViewMatrix;
@@ -321,6 +324,9 @@ bool FShader::Load(const char * name, const char * vert_prog_lump_, const char *
 		// dynamic lights
 		uniform ivec4 uLightRange;
 
+		// bone animation
+		uniform int uBoneIndexBase;
+
 		// Blinn glossiness and specular level
 		uniform vec2 uSpecularMaterial;
 
@@ -375,13 +381,11 @@ bool FShader::Load(const char * name, const char * vert_prog_lump_, const char *
 	i_data += "#define NPOT_EMULATION\nuniform vec2 uNpotEmulation;\n";
 #endif
 
-	int vp_lump = fileSystem.CheckNumForFullName(vert_prog_lump, 0);
+	int vp_lump = fileSystem.CheckNumForFullName(vert_prog_lump.GetChars(), 0);
 	if (vp_lump == -1) I_Error("Unable to load '%s'", vert_prog_lump.GetChars());
-	FileData vp_data = fileSystem.ReadFile(vp_lump);
 
-	int fp_lump = fileSystem.CheckNumForFullName(frag_prog_lump, 0);
+	int fp_lump = fileSystem.CheckNumForFullName(frag_prog_lump.GetChars(), 0);
 	if (fp_lump == -1) I_Error("Unable to load '%s'", frag_prog_lump.GetChars());
-	FileData fp_data = fileSystem.ReadFile(fp_lump);
 
 
 
@@ -391,10 +395,11 @@ bool FShader::Load(const char * name, const char * vert_prog_lump_, const char *
 	FString vp_comb;
 
 	assert(screen->mLights != NULL);
+	assert(screen->mBones != NULL);
 
 	unsigned int lightbuffersize = screen->mLights->GetBlockSize();
 
-	vp_comb.Format("#version 100\n#define NUM_UBO_LIGHTS %d\n#define NO_CLIPDISTANCE_SUPPORT\n", lightbuffersize);
+	vp_comb.Format("#version %s\n\n#define NO_CLIPDISTANCE_SUPPORT\n", gles.shaderVersionString);
 
 	FString fp_comb = vp_comb;
 	vp_comb << defines << i_data.GetChars();
@@ -403,39 +408,37 @@ bool FShader::Load(const char * name, const char * vert_prog_lump_, const char *
 	vp_comb << "#line 1\n";
 	fp_comb << "#line 1\n";
 
-	vp_comb << RemoveLayoutLocationDecl(vp_data.GetString(), "out").GetChars() << "\n";
-	fp_comb << RemoveLayoutLocationDecl(fp_data.GetString(), "in").GetChars() << "\n";
+	vp_comb << RemoveLayoutLocationDecl(GetStringFromLump(vp_lump), "out").GetChars() << "\n";
+	fp_comb << RemoveLayoutLocationDecl(GetStringFromLump(fp_lump), "in").GetChars() << "\n";
 	FString placeholder = "\n";
 
 	if (proc_prog_lump.Len())
 	{
 		fp_comb << "#line 1\n";
 
-		if (*proc_prog_lump != '#')
+		if (proc_prog_lump[0] != '#')
 		{
-			int pp_lump = fileSystem.CheckNumForFullName(proc_prog_lump);
+			int pp_lump = fileSystem.CheckNumForFullName(proc_prog_lump.GetChars());
 			if (pp_lump == -1) I_Error("Unable to load '%s'", proc_prog_lump.GetChars());
-			FileData pp_data = fileSystem.ReadFile(pp_lump);
+			FString pp_data = GetStringFromLump(pp_lump);
 
-			if (pp_data.GetString().IndexOf("ProcessMaterial") < 0 && pp_data.GetString().IndexOf("SetupMaterial") < 0)
+			if (pp_data.IndexOf("ProcessMaterial") < 0 && pp_data.IndexOf("SetupMaterial") < 0)
 			{
 				// this looks like an old custom hardware shader.
 
-				if (pp_data.GetString().IndexOf("GetTexCoord") >= 0)
+				if (pp_data.IndexOf("GetTexCoord") >= 0)
 				{
 					int pl_lump = fileSystem.CheckNumForFullName("shaders_gles/glsl/func_defaultmat2.fp", 0);
 					if (pl_lump == -1) I_Error("Unable to load '%s'", "shaders_gles/glsl/func_defaultmat2.fp");
-					FileData pl_data = fileSystem.ReadFile(pl_lump);
-					fp_comb << "\n" << pl_data.GetString().GetChars();
+					fp_comb << "\n" << GetStringFromLump(pl_lump);
 				}
 				else
 				{
 					int pl_lump = fileSystem.CheckNumForFullName("shaders_gles/glsl/func_defaultmat.fp", 0);
 					if (pl_lump == -1) I_Error("Unable to load '%s'", "shaders_gles/glsl/func_defaultmat.fp");
-					FileData pl_data = fileSystem.ReadFile(pl_lump);
-					fp_comb << "\n" << pl_data.GetString().GetChars();
+					fp_comb << "\n" << GetStringFromLump(pl_lump);
 
-					if (pp_data.GetString().IndexOf("ProcessTexel") < 0)
+					if (pp_data.IndexOf("ProcessTexel") < 0)
 					{
 						// this looks like an even older custom hardware shader.
 						// We need to replace the ProcessTexel call to make it work.
@@ -444,7 +447,7 @@ bool FShader::Load(const char * name, const char * vert_prog_lump_, const char *
 					}
 				}
 
-				if (pp_data.GetString().IndexOf("ProcessLight") >= 0)
+				if (pp_data.IndexOf("ProcessLight") >= 0)
 				{
 					// The ProcessLight signatured changed. Forward to the old one.
 					fp_comb << "\nvec4 ProcessLight(vec4 color);\n";
@@ -452,19 +455,18 @@ bool FShader::Load(const char * name, const char * vert_prog_lump_, const char *
 				}
 			}
 
-			fp_comb << RemoveLegacyUserUniforms(pp_data.GetString()).GetChars();
+			fp_comb << RemoveLegacyUserUniforms(pp_data).GetChars();
 			fp_comb.Substitute("gl_TexCoord[0]", "vTexCoord");	// fix old custom shaders.
 
-			if (pp_data.GetString().IndexOf("ProcessLight") < 0)
+			if (pp_data.IndexOf("ProcessLight") < 0)
 			{
 				int pl_lump = fileSystem.CheckNumForFullName("shaders_gles/glsl/func_defaultlight.fp", 0);
 				if (pl_lump == -1) I_Error("Unable to load '%s'", "shaders_gles/glsl/func_defaultlight.fp");
-				FileData pl_data = fileSystem.ReadFile(pl_lump);
-				fp_comb << "\n" << pl_data.GetString().GetChars();
+				fp_comb << "\n" << GetStringFromLump(pl_lump);
 			}
 
 			// ProcessMaterial must be considered broken because it requires the user to fill in data they possibly cannot know all about.
-			if (pp_data.GetString().IndexOf("ProcessMaterial") >= 0 && pp_data.GetString().IndexOf("SetupMaterial") < 0)
+			if (pp_data.IndexOf("ProcessMaterial") >= 0 && pp_data.IndexOf("SetupMaterial") < 0)
 			{
 				// This reactivates the old logic and disables all features that cannot be supported with that method.
 				placeholder << "#define LEGACY_USER_SHADER\n";
@@ -480,10 +482,9 @@ bool FShader::Load(const char * name, const char * vert_prog_lump_, const char *
 
 	if (light_fragprog.Len())
 	{
-		int pp_lump = fileSystem.CheckNumForFullName(light_fragprog, 0);
+		int pp_lump = fileSystem.CheckNumForFullName(light_fragprog.GetChars(), 0);
 		if (pp_lump == -1) I_Error("Unable to load '%s'", light_fragprog.GetChars());
-		FileData pp_data = fileSystem.ReadFile(pp_lump);
-		fp_comb << pp_data.GetString().GetChars() << "\n";
+		fp_comb << GetStringFromLump(pp_lump) << "\n";
 	}
 
 	if (gles.flags & RFL_NO_CLIP_PLANES)
@@ -529,6 +530,8 @@ bool FShader::Load(const char * name, const char * vert_prog_lump_, const char *
 		glBindAttribLocation(shaderData->hShader, VATTR_VERTEX2, "aVertex2");
 		glBindAttribLocation(shaderData->hShader, VATTR_NORMAL, "aNormal");
 		glBindAttribLocation(shaderData->hShader, VATTR_NORMAL2, "aNormal2");
+		glBindAttribLocation(shaderData->hShader, VATTR_BONEWEIGHT, "aBoneWeight");
+		glBindAttribLocation(shaderData->hShader, VATTR_BONESELECTOR, "aBoneSelector");
 
 
 		glLinkProgram(shaderData->hShader);
@@ -569,10 +572,6 @@ bool FShader::Load(const char * name, const char * vert_prog_lump_, const char *
 	shaderData->muViewMatrix.Init(shaderData->hShader, "ViewMatrix");
 	shaderData->muNormalViewMatrix.Init(shaderData->hShader, "NormalViewMatrix");
 
-	//shaderData->ProjectionMatrix_index = glGetUniformLocation(shaderData->hShader, "ProjectionMatrix");
-	//shaderData->ViewMatrix_index = glGetUniformLocation(shaderData->hShader, "ViewMatrix");
-	//shaderData->NormalViewMatrix_index = glGetUniformLocation(shaderData->hShader, "NormalViewMatrix");
-
 	shaderData->muCameraPos.Init(shaderData->hShader, "uCameraPos");
 	shaderData->muClipLine.Init(shaderData->hShader, "uClipLine");
 
@@ -591,6 +590,7 @@ bool FShader::Load(const char * name, const char * vert_prog_lump_, const char *
 	shaderData->muLightParms.Init(shaderData->hShader, "uLightAttr");
 	shaderData->muClipSplit.Init(shaderData->hShader, "uClipSplit");
 	shaderData->muLightRange.Init(shaderData->hShader, "uLightRange");
+	shaderData->muBoneIndexBase.Init(shaderData->hShader, "uBoneIndexBase");
 	shaderData->muFogColor.Init(shaderData->hShader, "uFogColor");
 	shaderData->muDynLightColor.Init(shaderData->hShader, "uDynLightColor");
 	shaderData->muObjectColor.Init(shaderData->hShader, "uObjectColor");
@@ -619,6 +619,7 @@ bool FShader::Load(const char * name, const char * vert_prog_lump_, const char *
 	shaderData->muFixedColormapRange.Init(shaderData->hShader, "uFixedColormapRange");
 
 	shaderData->lights_index = glGetUniformLocation(shaderData->hShader, "lights");
+	shaderData->bones_index = glGetUniformLocation(shaderData->hShader, "bones");
 	shaderData->modelmatrix_index = glGetUniformLocation(shaderData->hShader, "ModelMatrix");
 	shaderData->texturematrix_index = glGetUniformLocation(shaderData->hShader, "TextureMatrix");
 	shaderData->normalmodelmatrix_index = glGetUniformLocation(shaderData->hShader, "NormalModelMatrix");
@@ -718,8 +719,7 @@ bool FShader::Bind(ShaderFlavourData& flavour)
 
 		//Printf("Shader: %s, %08x %s", mFragProg2.GetChars(), tag, variantConfig.GetChars());
 
-		Load(mName.GetChars(), mVertProg, mFragProg, mFragProg2, mLightProg, mDefinesBase + variantConfig);
-
+		Load(mName.GetChars(), mVertProg.GetChars(), mFragProg.GetChars(), mFragProg2.GetChars(), mLightProg.GetChars(), (mDefinesBase + variantConfig).GetChars());
 		variants.insert(std::make_pair(tag, cur));
 	}
 	else

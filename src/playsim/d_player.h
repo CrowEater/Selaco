@@ -122,6 +122,10 @@ typedef enum
 	CF_TOTALLYFROZEN	= 1 << 12,		// [RH] All players can do is press +use
 	CF_PREDICTING		= 1 << 13,		// [RH] Player movement is being predicted
 	CF_INTERPVIEW		= 1 << 14,		// [RH] view was changed outside of input, so interpolate one frame
+	CF_INTERPVIEWANGLES	= 1 << 15,		// [MR] flag for interpolating view angles without interpolating the entire frame
+	CF_NOFOVINTERP		= 1 << 16,		// [B] Disable FOV interpolation when instantly zooming
+	CF_SCALEDNOLERP		= 1 << 17,		// [MR] flag for applying angles changes in the ticrate without interpolating the frame
+	CF_NOVIEWPOSINTERP	= 1 << 18,		// Disable view position interpolation.
 	CF_EXTREMELYDEAD	= 1 << 22,		// [RH] Reliably let the status bar know about extreme deaths.
 	CF_BUDDHA2			= 1 << 24,		// [MC] Absolute buddha. No voodoo can kill it either.
 	CF_GODMODE2			= 1 << 25,		// [MC] Absolute godmode. No voodoo can kill it either.
@@ -200,9 +204,25 @@ struct userinfo_t : TMap<FName,FBaseCVar *>
 	{
 		return *static_cast<FFloatCVar *>(*CheckKey(NAME_Autoaim));
 	}
-	const char *GetName() const
+	const char *GetName(unsigned int charLimit = 0u) const
 	{
-		return *static_cast<FStringCVar *>(*CheckKey(NAME_Name));
+		const char* name = *static_cast<FStringCVar*>(*CheckKey(NAME_Name));
+		if (charLimit)
+		{
+			FString temp = name;
+			if (temp.CharacterCount() > charLimit)
+			{
+				int next = 0;
+				for (unsigned int i = 0u; i < charLimit; ++i)
+					temp.GetNextCharacter(next);
+
+				temp.Truncate(next);
+				temp += "...";
+				name = temp.GetChars();
+			}
+		}
+
+		return name;
 	}
 	int GetTeam() const
 	{
@@ -223,6 +243,10 @@ struct userinfo_t : TMap<FName,FBaseCVar *>
 	double GetMoveBob() const
 	{
 		return *static_cast<FFloatCVar *>(*CheckKey(NAME_MoveBob));
+	}
+	bool GetFViewBob() const
+	{
+		return *static_cast<FBoolCVar *>(*CheckKey(NAME_FViewBob));
 	}
 	double GetStillBob() const
 	{
@@ -262,7 +286,7 @@ struct userinfo_t : TMap<FName,FBaseCVar *>
 		return *static_cast<FBoolCVar *>(*CheckKey(NAME_Wi_NoAutostartMap));
 	}
 
-	void Reset();
+	void Reset(int pnum);
 	int TeamChanged(int team);
 	int SkinChanged(const char *skinname, int playerclass);
 	int SkinNumChanged(int skinnum);
@@ -368,6 +392,7 @@ public:
 	int			chickenPeck = 0;			// chicken peck countdown
 	int			jumpTics = 0;				// delay the next jump for a moment
 	bool		onground = 0;				// Identifies if this player is on the ground or other object
+	bool		crossingPortal = 0;			// Crossing a portal (disables sprite from showing up)
 
 	int			respawn_time = 0;			// [RH] delay respawning until this tic
 	TObjPtr<AActor*>	camera = MakeObjPtr<AActor*>(nullptr);			// [RH] Whose eyes this player sees through
@@ -396,8 +421,8 @@ public:
 	FString		SubtitleText;
 	int			SubtitleCounter;
 
-	DAngle			MinPitch = 0.;	// Viewpitch limits (negative is up, positive is down)
-	DAngle			MaxPitch = 0.;
+	DAngle			MinPitch = nullAngle;	// Viewpitch limits (negative is up, positive is down)
+	DAngle			MaxPitch = nullAngle;
 
 	double crouchfactor = 0;
 	double crouchoffset = 0;
@@ -407,7 +432,7 @@ public:
 
 	// [CW] I moved these here for multiplayer conversation support.
 	TObjPtr<AActor*> ConversationNPC = MakeObjPtr<AActor*>(nullptr), ConversationPC = MakeObjPtr<AActor*>(nullptr);
-	DAngle ConversationNPCAngle = 0.;
+	DAngle ConversationNPCAngle = nullAngle;
 	bool ConversationFaceTalker = false;
 
 	double GetDeltaViewHeight() const
@@ -448,6 +473,9 @@ public:
 	void SetFOV(float fov);
 	bool HasWeaponsInSlot(int slot) const;
 	bool Resurrect();
+
+	// Scaled angle adjustment info. Not for direct manipulation.
+	DRotator angleOffsetTargets;
 };
 
 // Bookkeeping on players - state.
@@ -479,5 +507,7 @@ inline bool AActor::IsNoClip2() const
 }
 
 bool P_IsPlayerTotallyFrozen(const player_t *player);
+
+bool P_NoInterpolation(player_t const *player, AActor const *actor);
 
 #endif // __D_PLAYER_H__

@@ -34,6 +34,8 @@
 #ifndef __C_DISPATCH_H__
 #define __C_DISPATCH_H__
 
+#include <string>
+#include <vector>
 #include <stdint.h>
 #include <functional>
 #include "c_console.h"
@@ -52,14 +54,12 @@ struct FExecList
 
 	void AddCommand(const char *cmd, const char *file = nullptr);
 	void ExecCommands() const;
-	void AddPullins(TArray<FString> &wads, FConfigFile *config) const;
+	void AddPullins(std::vector<std::string> &wads, FConfigFile *config) const;
 };
 
 extern bool ParsingKeyConf, UnsafeExecutionContext;
 extern	FString			StoredWarp;			// [RH] +warp at the command line
 
-
-extern bool CheckCheatmode (bool printmsg = true, bool sponly = false);
 
 FExecList *C_ParseCmdLineParams(FExecList *exec);
 

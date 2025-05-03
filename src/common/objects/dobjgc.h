@@ -26,6 +26,7 @@ enum EObjectFlags
 	OF_Transient		= 1 << 11,		// Object should not be archived (references to it will be nulled on disk)
 	OF_Spawned			= 1 << 12,      // Thinker was spawned at all (some thinkers get deleted before spawning)
 	OF_Released			= 1 << 13,		// Object was released from the GC system and should not be processed by GC function
+	OF_Networked		= 1 << 14,		// Object has a unique network identifier that makes it synchronizable between all clients.
 };
 
 template<class T> class TObjPtr;
@@ -37,11 +38,20 @@ namespace GC
 		GCS_Pause,
 		GCS_Propagate,
 		GCS_Sweep,
-		GCS_Finalize
+		GCS_Destroy,
+		GCS_Done,
+
+		GCS_COUNT
 	};
 
 	// Number of bytes currently allocated through M_Malloc/M_Realloc.
 	extern size_t AllocBytes;
+
+	// Number of bytes allocated since last collection step.
+	extern size_t RunningAllocBytes;
+
+	// Number of bytes freed since last collection step.
+	extern size_t RunningDeallocBytes;
 
 	// Amount of memory to allocate before triggering a collection.
 	extern size_t Threshold;
@@ -70,17 +80,11 @@ namespace GC
 	// Is this the final collection just before exit?
 	extern bool FinalGC;
 
-	// Counts the number of times CheckGC has been called.
-	extern uint64_t CheckTime;
-
 	// Current white value for known-dead objects.
 	static inline uint32_t OtherWhite()
 	{
 		return CurrentWhite ^ OF_WhiteBits;
 	}
-
-	// Frees all objects, whether they're dead or not.
-	void FreeAll();
 
 	// Does one collection step.
 	void Step();
@@ -107,13 +111,18 @@ namespace GC
 		return obj = NULL;
 	}
 
-	// Check if it's time to collect, and do a collection step if it is.
-	static inline void CheckGC()
+	// Handles a read barrier for a const pointer. This does not alter the source data, but only returns NULL if the object is destroyed.
+	template<class T> inline T* ReadBarrier(const T*& obj)
 	{
-		CheckTime++;
-		if (AllocBytes >= Threshold)
-			Step();
+		if (obj == NULL || !(obj->ObjectFlags & OF_EuthanizeMe))
+		{
+			return obj;
+		}
+		return NULL;
 	}
+
+	// Check if it's time to collect, and do a collection step if it is.
+	void CheckGC();
 
 	// Forces a collection to start now.
 	static inline void StartCollection()
@@ -166,6 +175,32 @@ namespace GC
 	using GCMarkerFunc = void(*)();
 	void AddMarkerFunc(GCMarkerFunc func);
 
+	// Report an allocation to the GC
+	static inline void ReportAlloc(size_t alloc)
+	{
+		AllocBytes += alloc;
+		RunningAllocBytes += alloc;
+	}
+
+	// Report a deallocation to the GC
+	static inline void ReportDealloc(size_t dealloc)
+	{
+		AllocBytes -= dealloc;
+		RunningDeallocBytes += dealloc;
+	}
+
+	// Report a reallocation to the GC
+	static inline void ReportRealloc(size_t oldsize, size_t newsize)
+	{
+		if (oldsize < newsize)
+		{
+			ReportAlloc(newsize - oldsize);
+		}
+		else
+		{
+			ReportDealloc(oldsize - newsize);
+		}
+	}
 }
 
 // A template class to help with handling read barriers. It does not
@@ -176,8 +211,8 @@ class TObjPtr
 {
 	union
 	{
-		T pp;
-		DObject *o;
+		mutable T pp;
+		mutable DObject *o;
 	};
 public:
 
@@ -214,7 +249,13 @@ public:
 		return GC::ReadBarrier(pp);
 	}
 
-	constexpr T ForceGet() noexcept	//for situations where the read barrier needs to be skipped.
+	constexpr T Get() const noexcept
+	{
+		auto ppp = pp;
+		return GC::ReadBarrier(ppp);
+	}
+
+	constexpr T ForceGet() const noexcept	//for situations where the read barrier needs to be skipped.
 	{
 		return pp;
 	}
@@ -233,13 +274,24 @@ public:
 	{
 		return GC::ReadBarrier(pp);
 	}
-	constexpr bool operator!=(T u) noexcept
+	
+	constexpr const T operator->() const noexcept
+	{
+		return GC::ReadBarrier(pp);
+	}
+
+	constexpr bool operator!=(T u) const noexcept
 	{
 		return GC::ReadBarrier(o) != u;
 	}
-	constexpr bool operator==(T u) noexcept
+	constexpr bool operator==(T u) const noexcept
 	{
 		return GC::ReadBarrier(o) == u;
+	}
+
+	constexpr bool operator==(TObjPtr<T> u) const noexcept
+	{
+		return ForceGet() == u.ForceGet();
 	}
 
 	template<class U> friend inline void GC::Mark(TObjPtr<U> &obj);

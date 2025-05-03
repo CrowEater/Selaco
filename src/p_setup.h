@@ -28,7 +28,7 @@
 #ifndef __P_SETUP__
 #define __P_SETUP__
 
-#include "resourcefile.h"
+#include "fs_filesystem.h"
 #include "doomdata.h"
 #include "r_defs.h"
 #include "nodebuild.h"
@@ -144,7 +144,7 @@ bool P_CheckMapData(const char * mapname, int forceVersion = -1);
 void P_SetupLevel (FLevelLocals *Level, int position, bool newGame, int mapVersion = -1);
 void P_LoadLightmap(MapData *map);
 
-void P_FreeLevelData();
+void P_FreeLevelData(bool fullgc = true);
 
 // Called by startup code.
 void P_Init (void);

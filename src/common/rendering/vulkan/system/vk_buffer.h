@@ -1,10 +1,10 @@
 
 #pragma once
 
-#include "vulkan/system/vk_objects.h"
+#include "zvulkan/vulkanobjects.h"
 #include <list>
 
-class VulkanFrameBuffer;
+class VulkanRenderDevice;
 class VkHardwareBuffer;
 class VkHardwareDataBuffer;
 class VkStreamBuffer;
@@ -15,7 +15,7 @@ class IDataBuffer;
 class VkBufferManager
 {
 public:
-	VkBufferManager(VulkanFrameBuffer* fb);
+	VkBufferManager(VulkanRenderDevice* fb);
 	~VkBufferManager();
 
 	void Init();
@@ -33,6 +33,7 @@ public:
 	VkHardwareDataBuffer* LightNodes = nullptr;
 	VkHardwareDataBuffer* LightLines = nullptr;
 	VkHardwareDataBuffer* LightList = nullptr;
+	VkHardwareDataBuffer* BoneBufferSSO = nullptr;
 
 	std::unique_ptr<VkStreamBuffer> MatrixBuffer;
 	std::unique_ptr<VkStreamBuffer> StreamBuffer;
@@ -42,7 +43,7 @@ public:
 private:
 	void CreateFanToTrisIndexBuffer();
 
-	VulkanFrameBuffer* fb = nullptr;
+	VulkanRenderDevice* fb = nullptr;
 
 	std::list<VkHardwareBuffer*> Buffers;
 };

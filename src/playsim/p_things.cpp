@@ -87,7 +87,7 @@ bool FLevelLocals::EV_Thing_Spawn (int tid, AActor *source, int type, DAngle ang
 			if (P_TestMobjLocation (mobj))
 			{
 				rtn++;
-				mobj->Angles.Yaw = (angle != 1000000. ? angle : spot->Angles.Yaw);
+				mobj->Angles.Yaw = (angle != DAngle::fromDeg(1000000.) ? angle : spot->Angles.Yaw);
 				if (fog)
 				{
 					P_SpawnTeleportFog(mobj, spot->Pos(), false, true);
@@ -468,7 +468,7 @@ bool P_Thing_Raise(AActor *thing, AActor *raiser, int flags)
 	thing->flags |= MF_SOLID;
 	thing->Height = info->Height;	// [RH] Use real height
 	thing->radius = info->radius;	// [RH] Use real radius
-	if (!(flags & RF_NOCHECKPOSITION) && !P_CheckPosition (thing, thing->Pos()))
+	if (!(flags & RF_NOCHECKPOSITION) && !P_CheckPosition (thing, thing->Pos().XY()))
 	{
 		thing->flags = oldflags;
 		thing->radius = oldradius;
@@ -512,7 +512,7 @@ bool P_Thing_CanRaise(AActor *thing)
 	thing->Height = info->Height;
 	thing->radius = info->radius;
 
-	bool check = P_CheckPosition (thing, thing->Pos());
+	bool check = P_CheckPosition (thing, thing->Pos().XY());
 
 	// Restore checked properties
 	thing->flags = oldflags;
@@ -776,7 +776,7 @@ int P_Thing_Warp(AActor *caller, AActor *reference, double xofs, double yofs, do
 			if (flags & WARPF_COPYPITCH)
 				caller->SetPitch(reference->Angles.Pitch, false);
 			
-			if (pitch != 0)
+			if (pitch != nullAngle)
 				caller->SetPitch(caller->Angles.Pitch + pitch, false);
 			
 			if (flags & WARPF_COPYVELOCITY)
@@ -813,7 +813,7 @@ int P_Thing_Warp(AActor *caller, AActor *reference, double xofs, double yofs, do
 			{
 				caller->AddZ(reference->GetBobOffset());
 			}
-			P_TryMove(caller, caller->Pos(), false);
+			P_TryMove(caller, caller->Pos().XY(), false);
 		}
 		return true;
 	}

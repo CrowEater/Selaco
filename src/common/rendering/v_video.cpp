@@ -81,7 +81,7 @@ CUSTOM_CVAR(Int, gl_pipeline_depth, 0, CVAR_ARCHIVE | CVAR_GLOBALCONFIG | CVAR_N
 	Printf("Changing the pipeline depth requires a restart for " GAMENAME ".\n");
 }
 
-CUSTOM_CVAR(Int, vid_maxfps, 200, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
+CUSTOM_CVAR(Int, vid_maxfps, 500, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
 {
 	if (self < GameTicRate && self != 0)
 	{
@@ -93,7 +93,7 @@ CUSTOM_CVAR(Int, vid_maxfps, 200, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
 	}
 }
 
-CUSTOM_CVAR(Int, vid_preferbackend, 0, CVAR_ARCHIVE | CVAR_GLOBALCONFIG | CVAR_NOINITCALL)
+CUSTOM_CVAR(Int, vid_preferbackend, 1, CVAR_ARCHIVE | CVAR_GLOBALCONFIG | CVAR_NOINITCALL)
 {
 	// [SP] This may seem pointless - but I don't want to implement live switching just
 	// yet - I'm pretty sure it's going to require a lot of reinits and destructions to
@@ -103,12 +103,12 @@ CUSTOM_CVAR(Int, vid_preferbackend, 0, CVAR_ARCHIVE | CVAR_GLOBALCONFIG | CVAR_N
 	{
 #ifdef HAVE_GLES2
 	case 3:
+		self = 2;
+		return; // beware of recursions here. Assigning to 'self' will recursively call this handler again.
+	case 2:
 		Printf("Selecting OpenGLES 2.0 backend...\n");
 		break;
 #endif
-	case 2:
-		Printf("Selecting SoftPoly backend...\n");
-		break;
 #ifdef HAVE_VULKAN
 	case 1:
 		Printf("Selecting Vulkan backend...\n");
@@ -119,6 +119,14 @@ CUSTOM_CVAR(Int, vid_preferbackend, 0, CVAR_ARCHIVE | CVAR_GLOBALCONFIG | CVAR_N
 	}
 
 	Printf("Changing the video backend requires a restart for " GAMENAME ".\n");
+}
+
+int V_GetBackend()
+{
+	int v = vid_preferbackend;
+	if (v == 3) vid_preferbackend = v = 2;
+	else if (v < 0 || v > 3) v = 0;
+	return v;
 }
 
 
@@ -388,7 +396,7 @@ void V_Init2()
 	UCVarValue val;
 
 	val.Bool = !!Args->CheckParm("-devparm");
-	ticker.SetGenericRepDefault(val, CVAR_Bool);
+	ticker->SetGenericRepDefault(val, CVAR_Bool);
 
 
 	I_InitGraphics();

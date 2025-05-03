@@ -282,9 +282,9 @@ DEFINE_ACTION_FUNCTION(FStringStruct, DeleteLastCharacter)
 
 static void LocalizeString(const FString &label, bool prefixed, FString *result)
 {
-	if (!prefixed) *result = GStrings(label);
+	if (!prefixed) *result = GStrings.GetString(label);
 	else if (label[0] != '$') *result = label;
-	else *result = GStrings(&label[1]);
+	else *result = GStrings.GetString(&label[1]);
 }
 
 DEFINE_ACTION_FUNCTION_NATIVE(FStringTable, Localize, LocalizeString)
@@ -408,13 +408,13 @@ DEFINE_ACTION_FUNCTION_NATIVE(FStringStruct, ByteAt, StringByteAt)
 
 static void StringFilter(FString *self, FString *result)
 {
-	*result = strbin1(*self);
+	*result = strbin1(self->GetChars());
 }
 
 DEFINE_ACTION_FUNCTION_NATIVE(FStringStruct, Filter, StringFilter)
 {
 	PARAM_SELF_STRUCT_PROLOGUE(FString);
-	ACTION_RETURN_STRING(strbin1(*self));
+	ACTION_RETURN_STRING(strbin1(self->GetChars()));
 }
 
 static int StringIndexOf(FString *self, const FString &substr, int startIndex)
@@ -575,6 +575,34 @@ DEFINE_ACTION_FUNCTION_NATIVE(FStringStruct, StripRight, StringStripRight)
 	PARAM_SELF_STRUCT_PROLOGUE(FString);
 	PARAM_STRING(junk);
 	StringStripRight(self, junk);
+	return 0;
+}
+
+static void StringStripLeft(FString* self, const FString& junk)
+{
+	if (junk.IsNotEmpty()) self->StripLeft(junk);
+	else self->StripLeft();
+}
+
+DEFINE_ACTION_FUNCTION_NATIVE(FStringStruct, StripLeft, StringStripLeft)
+{
+	PARAM_SELF_STRUCT_PROLOGUE(FString);
+	PARAM_STRING(junk);
+	StringStripLeft(self, junk);
+	return 0;
+}
+
+static void StringStripLeftRight(FString* self, const FString& junk)
+{
+	if (junk.IsNotEmpty()) self->StripLeftRight(junk);
+	else self->StripLeftRight();
+}
+
+DEFINE_ACTION_FUNCTION_NATIVE(FStringStruct, StripLeftRight, StringStripLeftRight)
+{
+	PARAM_SELF_STRUCT_PROLOGUE(FString);
+	PARAM_STRING(junk);
+	StringStripLeftRight(self, junk);
 	return 0;
 }
 

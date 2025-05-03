@@ -50,6 +50,7 @@ bool isActor(PContainerType *type);
 void AddActorInfo(PClass *cls);
 int GetIntConst(FxExpression* ex, FCompileContext& ctx);
 double GetFloatConst(FxExpression* ex, FCompileContext& ctx);
+VMFunction* GetFuncConst(FxExpression* ex, FCompileContext& ctx);
 
 //==========================================================================
 //
@@ -69,6 +70,7 @@ int ZCCDoomCompiler::Compile()
 	InitDefaults();
 	InitFunctions();
 	CompileStates();
+	InitDefaultFunctionPointers();
 	return FScriptPosition::ErrorCounter;
 }
 
@@ -242,7 +244,7 @@ void ZCCDoomCompiler::DispatchProperty(FPropertyInfo *prop, ZCC_PropertyStmt *pr
 		const char * p = prop->params;
 		auto exp = property->Values;
 
-		FCompileContext ctx(OutNamespace, bag.Info->VMType, false);
+		FCompileContext ctx(OutNamespace, bag.Info->VMType, false, mVersion);
 		while (true)
 		{
 			FPropParam conv;
@@ -280,6 +282,10 @@ void ZCCDoomCompiler::DispatchProperty(FPropertyInfo *prop, ZCC_PropertyStmt *pr
 
 			case 'F':
 				conv.d = GetFloatConst(ex, ctx);
+				break;
+
+			case 'G':
+				conv.fu = GetFuncConst(ex, ctx);
 				break;
 
 			case 'Z':	// an optional string. Does not allow any numeric value.
@@ -390,6 +396,46 @@ void ZCCDoomCompiler::DispatchProperty(FPropertyInfo *prop, ZCC_PropertyStmt *pr
 //
 //==========================================================================
 
+PFunction * FindFunctionPointer(PClass * cls, int fn_name);
+PFunction *NativeFunctionPointerCast(PFunction *from, const PFunctionPointer *to);
+
+struct FunctionPointerProperties
+{
+	ZCC_PropertyStmt *prop;
+	PClass * cls;
+	FName name;
+	const PFunctionPointer * type;
+	PFunction ** addr;
+};
+
+TArray<FunctionPointerProperties> DefaultFunctionPointers;
+
+void ZCCDoomCompiler::InitDefaultFunctionPointers()
+{
+	for(auto &d : DefaultFunctionPointers)
+	{
+		PFunction * fn = FindFunctionPointer(d.cls, d.name.GetIndex());
+		if(!fn)
+		{
+			Error(d.prop, "Could not find function '%s' in class '%s'",d.name.GetChars(), d.cls->TypeName.GetChars());
+		}
+		else
+		{
+			PFunction * casted = NativeFunctionPointerCast(fn,d.type);
+			if(!casted)
+			{
+				FString fn_proto_name = PFunctionPointer::GenerateNameForError(fn);
+				Error(d.prop, "Function has incompatible types, cannot convert from '%s' to '%s'",fn_proto_name.GetChars(), d.type->DescriptiveName());
+			}
+			else
+			{
+				(*d.addr) = casted;
+			}
+		}
+	}
+	DefaultFunctionPointers.Clear();
+}
+
 void ZCCDoomCompiler::DispatchScriptProperty(PProperty *prop, ZCC_PropertyStmt *property, AActor *defaults, Baggage &bag)
 {
 	ZCC_ExprConstant one;
@@ -425,7 +471,7 @@ void ZCCDoomCompiler::DispatchScriptProperty(PProperty *prop, ZCC_PropertyStmt *
 	}
 
 	auto exp = property->Values;
-	FCompileContext ctx(OutNamespace, bag.Info->VMType, false);
+	FCompileContext ctx(OutNamespace, bag.Info->VMType, false, mVersion);
 	for (auto f : prop->Variables)
 	{
 		void *addr;
@@ -452,9 +498,105 @@ void ZCCDoomCompiler::DispatchScriptProperty(PProperty *prop, ZCC_PropertyStmt *
 		}
 		else if (!ex->isConstant())
 		{
+			if (ex->ExprType == EFX_VectorValue && ex->ValueType == f->Type)
+			{
+				auto v = static_cast<FxVectorValue *>(ex);
+				if (f->Type == TypeVector2)
+				{
+					if(!v->isConstVector(2))
+					{
+						Error(exp, "%s: non-constant Vector2 parameter", prop->SymbolName.GetChars());
+						return;
+					}
+					(*(DVector2*)addr) = DVector2(
+						static_cast<FxConstant *>(v->xyzw[0])->GetValue().GetFloat(),
+						static_cast<FxConstant *>(v->xyzw[1])->GetValue().GetFloat()
+					);
+					goto vector_ok;
+				}
+				else if (f->Type == TypeFVector2)
+				{
+					if(!v->isConstVector(2))
+					{
+						Error(exp, "%s: non-constant FVector2 parameter", prop->SymbolName.GetChars());
+						return;
+					}
+					(*(FVector2*)addr) = FVector2(
+						float(static_cast<FxConstant *>(v->xyzw[0])->GetValue().GetFloat()),
+						float(static_cast<FxConstant *>(v->xyzw[1])->GetValue().GetFloat())
+					);
+					goto vector_ok;
+				}
+				else if (f->Type == TypeVector3)
+				{
+					if(!v->isConstVector(3))
+					{
+						Error(exp, "%s: non-constant Vector3 parameter", prop->SymbolName.GetChars());
+						return;
+					}
+					(*(DVector3*)addr) = DVector3(
+						static_cast<FxConstant *>(v->xyzw[0])->GetValue().GetFloat(),
+						static_cast<FxConstant *>(v->xyzw[1])->GetValue().GetFloat(),
+						static_cast<FxConstant *>(v->xyzw[2])->GetValue().GetFloat()
+					);
+					goto vector_ok;
+				}
+				else if (f->Type == TypeFVector3)
+				{
+					if(!v->isConstVector(3))
+					{
+						Error(exp, "%s: non-constant FVector3 parameter", prop->SymbolName.GetChars());
+						return;
+					}
+					(*(FVector3*)addr) = FVector3(
+						float(static_cast<FxConstant*>(v->xyzw[0])->GetValue().GetFloat()),
+						float(static_cast<FxConstant*>(v->xyzw[1])->GetValue().GetFloat()),
+						float(static_cast<FxConstant*>(v->xyzw[2])->GetValue().GetFloat())
+					);
+					goto vector_ok;
+				}
+				else if (f->Type == TypeVector4)
+				{
+					if(!v->isConstVector(4))
+					{
+						Error(exp, "%s: non-constant Vector4 parameter", prop->SymbolName.GetChars());
+						return;
+					}
+					(*(DVector4*)addr) = DVector4(
+						static_cast<FxConstant *>(v->xyzw[0])->GetValue().GetFloat(),
+						static_cast<FxConstant *>(v->xyzw[1])->GetValue().GetFloat(),
+						static_cast<FxConstant *>(v->xyzw[2])->GetValue().GetFloat(),
+						static_cast<FxConstant *>(v->xyzw[3])->GetValue().GetFloat()
+					);
+					goto vector_ok;
+				}
+				else if (f->Type == TypeFVector4)
+				{
+					if(!v->isConstVector(4))
+					{
+						Error(exp, "%s: non-constant FVector4 parameter", prop->SymbolName.GetChars());
+						return;
+					}
+					(*(FVector4*)addr) = FVector4(
+						float(static_cast<FxConstant*>(v->xyzw[0])->GetValue().GetFloat()),
+						float(static_cast<FxConstant*>(v->xyzw[1])->GetValue().GetFloat()),
+						float(static_cast<FxConstant*>(v->xyzw[2])->GetValue().GetFloat()),
+						float(static_cast<FxConstant *>(v->xyzw[3])->GetValue().GetFloat())
+					);
+					goto vector_ok;
+				}
+				else
+				{
+					Error(exp, "%s: invalid vector parameter", prop->SymbolName.GetChars());
+					return;
+				}
+			}
+			else
+			{
+				if (exp->Type != TypeError) Error(exp, "%s: non-constant parameter", prop->SymbolName.GetChars());
+				return;
+			}
 			// If we get TypeError, there has already been a message from deeper down so do not print another one.
-			if (exp->Type != TypeError) Error(exp, "%s: non-constant parameter", prop->SymbolName.GetChars());
-			return;
 		}
 
 		if (f->Type == TypeBool)
@@ -467,7 +609,7 @@ void ZCCDoomCompiler::DispatchScriptProperty(PProperty *prop, ZCC_PropertyStmt *
 		}
 		else if (f->Type == TypeSound)
 		{
-			*(FSoundID*)addr = GetStringConst(ex, ctx);
+			*(FSoundID*)addr = S_FindSound(GetStringConst(ex, ctx));
 		}
 		else if (f->Type == TypeColor && ex->ValueType == TypeString)	// colors can also be specified as ints.
 		{
@@ -507,10 +649,49 @@ void ZCCDoomCompiler::DispatchScriptProperty(PProperty *prop, ZCC_PropertyStmt *
 				*(PClass**)addr = cls;
 			}
 		}
+		else if (f->Type->isFunctionPointer())
+		{
+			const char * fn_str = GetStringConst(ex, ctx);
+			if (*fn_str == 0 || !stricmp(fn_str, "none"))
+			{
+				*(PFunction**)addr = nullptr;
+			}
+			else
+			{
+				TArray<FString> fn_info(FString(fn_str).Split("::", FString::TOK_SKIPEMPTY));
+				if(fn_info.Size() != 2)
+				{
+					Error(property, "Malformed function pointer property \"%s\", must be \"Class::Function\"",fn_str);
+				}
+				PClass * cls = PClass::FindClass(fn_info[0]);
+				if(!cls)
+				{
+					Error(property, "Could not find class '%s'",fn_info[0].GetChars());
+					*(PFunction**)addr = nullptr;
+				}
+				else
+				{
+					FName fn_name(fn_info[1], true);
+					if(fn_name.GetIndex() == 0)
+					{
+						Error(property, "Could not find function '%s' in class '%s'",fn_info[1].GetChars(),fn_info[0].GetChars());
+						*(PFunction**)addr = nullptr;
+					}
+					else
+					{
+						DefaultFunctionPointers.Push({property, cls, fn_name, static_cast<const PFunctionPointer *>(f->Type), (PFunction**)addr});
+						*(PFunction**)addr = nullptr;
+					}
+
+				}
+			}
+
+		}
 		else
 		{
 			Error(property, "unhandled property type %s", f->Type->DescriptiveName());
 		}
+vector_ok:
 		exp->ToErrorNode();	// invalidate after processing.
 		exp = static_cast<ZCC_Expression *>(exp->SiblingNext);
 	}
@@ -553,7 +734,7 @@ void ZCCDoomCompiler::ProcessDefaultProperty(PClassActor *cls, ZCC_PropertyStmt 
 	}
 
 
-	FPropertyInfo *property = FindProperty(propname);
+	FPropertyInfo *property = FindProperty(propname.GetChars());
 
 	if (property != nullptr && property->category != CAT_INFO)
 	{
@@ -890,7 +1071,7 @@ void ZCCDoomCompiler::CompileStates()
 				{
 					auto sl = static_cast<ZCC_StateLabel *>(st);
 					statename = FName(sl->Label).GetChars();
-					statedef.AddStateLabel(statename);
+					statedef.AddStateLabel(statename.GetChars());
 					break;
 				}
 				case AST_StateLine:
@@ -907,7 +1088,7 @@ void ZCCDoomCompiler::CompileStates()
 					{
 						state.sprite = GetSpriteIndex(sl->Sprite->GetChars());
 					}
-					FCompileContext ctx(OutNamespace, c->Type(), false);
+					FCompileContext ctx(OutNamespace, c->Type(), false, mVersion);
 					if (CheckRandom(sl->Duration))
 					{
 						auto func = static_cast<ZCC_ExprFuncCall *>(sl->Duration);
@@ -949,7 +1130,7 @@ void ZCCDoomCompiler::CompileStates()
 						auto l = sl->Lights;
 						do
 						{
-							AddStateLight(&state, StringConstFromNode(l, c->Type()));
+							AddStateLight(&state, StringConstFromNode(l, c->Type()).GetChars());
 							l = static_cast<decltype(l)>(l->SiblingNext);
 						} while (l != sl->Lights);
 					}
@@ -1000,7 +1181,7 @@ void ZCCDoomCompiler::CompileStates()
 							statename.AppendFormat("+%d", offset);
 						}
 					}
-					if (!statedef.SetGotoLabel(statename))
+					if (!statedef.SetGotoLabel(statename.GetChars()))
 					{
 						Error(sg, "GOTO before first state");
 					}

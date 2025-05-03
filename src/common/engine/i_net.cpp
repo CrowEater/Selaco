@@ -419,12 +419,12 @@ void BuildAddress (sockaddr_in *address, const char *name)
 
 	if (!isnamed)
 	{
-		address->sin_addr.s_addr = inet_addr (target);
+		address->sin_addr.s_addr = inet_addr (target.GetChars());
 		Printf ("Node number %d, address %s\n", doomcom.numnodes, target.GetChars());
 	}
 	else
 	{
-		hostentry = gethostbyname (target);
+		hostentry = gethostbyname (target.GetChars());
 		if (!hostentry)
 			I_FatalError ("gethostbyname: couldn't find %s\n%s", target.GetChars(), neterror());
 		address->sin_addr.s_addr = *(int *)hostentry->h_addr_list[0];
@@ -903,11 +903,11 @@ bool JoinGame (int i)
 static int PrivateNetOf(in_addr in)
 {
 	int addr = ntohl(in.s_addr);
-		 if ((addr & 0xFFFF0000) == 0xC0A80000)		// 192.168.0.0
+	if ((addr & 0xFFFF0000) == 0xC0A80000)		// 192.168.0.0
 	{
 		return 0xC0A80000;
 	}
-	else if ((addr & 0xFFF00000) == 0xAC100000)		// 172.16.0.0
+	else if ((addr & 0xFFFF0000) >= 0xAC100000 && (addr & 0xFFFF0000) <= 0xAC1F0000)	// 172.16.0.0 - 172.31.0.0
 	{
 		return 0xAC100000;
 	}

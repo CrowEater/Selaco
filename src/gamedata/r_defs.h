@@ -39,6 +39,7 @@
 #include "fcolormap.h"
 #include "r_sky.h"
 #include "p_terrain.h"
+#include "p_effect.h"
 
 #include "hwrenderer/data/buffers.h"
 
@@ -302,6 +303,7 @@ struct secplane_t
 	DVector3 normal;
 	double  D, negiC;	// negative iC because that also saves a negation in all methods using this.
 public:
+	bool dithertransflag;	// Render plane with dithering transparency shader (gets reset every frame)
 	friend FSerializer &Serialize(FSerializer &arc, const char *key, secplane_t &p, secplane_t *def);
 
 	void set(double aa, double bb, double cc, double dd)
@@ -364,9 +366,19 @@ public:
 		return (D + normal.X*pos.X + normal.Y*pos.Y) * negiC;
 	}
 
+	double ZatPoint(const DVector3& pos) const
+	{
+		return (D + normal.X * pos.X + normal.Y * pos.Y) * negiC;
+	}
+
 	double ZatPoint(const FVector2 &pos) const
 	{
 		return (D + normal.X*pos.X + normal.Y*pos.Y) * negiC;
+	}
+
+	double ZatPoint(const FVector3& pos) const
+	{
+		return (D + normal.X * pos.X + normal.Y * pos.Y) * negiC;
 	}
 
 	double ZatPoint(const vertex_t *v) const
@@ -657,6 +669,7 @@ struct sector_t
 		float GlowHeight;
 		FTextureID Texture;
 		TextureManipulation TextureFx;
+		FTextureID skytexture[2];
 	};
 
 
@@ -680,10 +693,10 @@ struct sector_t
 
 	int		special;					// map-defined sector special type
 
-	int			sky;						// MBF sky transfer info.
+	int			skytransfer;						// MBF sky transfer info.
 	int 		validcount;					// if == validcount, already checked
 
-	uint32_t bottommap, midmap, topmap;		// killough 4/4/98: dynamic colormaps
+	uint32_t selfmap, bottommap, midmap, topmap;		// killough 4/4/98: dynamic colormaps
 											// [RH] these can also be blend values if
 											//		the alpha mask is non-zero
 
@@ -815,7 +828,6 @@ public:
 
 	int CheckSpriteGlow(int lightlevel, const DVector3 &pos);
 	bool GetWallGlow(float *topglowcolor, float *bottomglowcolor);
-
 
 	void SetXOffset(int pos, double o)
 	{
@@ -1168,6 +1180,8 @@ enum
 	WALLF_ABSLIGHTING_TOP		= WALLF_ABSLIGHTING_TIER << 0, 	// Top tier light is absolute instead of relative
 	WALLF_ABSLIGHTING_MID		= WALLF_ABSLIGHTING_TIER << 1, 	// Mid tier light is absolute instead of relative
 	WALLF_ABSLIGHTING_BOTTOM 	= WALLF_ABSLIGHTING_TIER << 2,	// Bottom tier light is absolute instead of relative
+
+	WALLF_DITHERTRANS			= 8192,	// Render with dithering transparency shader (gets reset every frame)
 };
 
 struct side_t
@@ -1184,6 +1198,15 @@ struct side_t
 		walltop = 0,
 		wallbottom = 1,
 	};
+	enum ESkew
+	{
+		skew_none = 0,
+		skew_front_floor = 1,
+		skew_front_ceiling = 2,
+		skew_back_floor = 3,
+		skew_back_ceiling = 4
+	};
+
 	struct part
 	{
 		enum EPartFlags
@@ -1199,7 +1222,8 @@ struct side_t
 		double xScale;
 		double yScale;
 		TObjPtr<DInterpolation*> interpolation;
-		int flags;
+		int16_t flags;
+		int8_t skew;
 		FTextureID texture;
 		TextureManipulation TextureFx;
 		PalEntry SpecialColors[2];
@@ -1456,10 +1480,24 @@ enum AutomapLineStyle : int
 	AMLS_COUNT
 };
 
-struct line_t
+struct linebase_t
 {
-	vertex_t	*v1, *v2;	// vertices, from v1 to v2
+	vertex_t* v1, * v2;	// vertices, from v1 to v2
 	DVector2	delta;		// precalculated v2 - v1 for side checking
+
+	DVector2 Delta() const
+	{
+		return delta;
+	}
+
+	void setDelta(double x, double y)
+	{
+		delta = { x, y };
+	}
+};
+
+struct line_t : public linebase_t
+{
 	uint32_t	flags, flags2;
 	uint32_t	blockBits;	// @Cockatrice - Compared to actor for collision
 	uint32_t	activation;	// activation type
@@ -1478,16 +1516,6 @@ struct line_t
 	int			healthgroup; // [ZZ] this is the "destructible object" id
 	int			linenum;
 
-	DVector2 Delta() const
-	{
-		return delta;
-	}
-
-	void setDelta(double x, double y)
-	{
-		delta = { x, y };
-	}
-
 	void setAlpha(double a)
 	{
 		alpha = a;
@@ -1501,7 +1529,11 @@ struct line_t
 	inline bool isLinePortal() const;
 	inline bool isVisualPortal() const;
 	inline line_t *getPortalDestination() const;
+	inline int getPortalFlags() const;
 	inline int getPortalAlignment() const;
+	inline int getPortalType() const;
+	inline DVector2 getPortalDisplacement() const;
+	inline DAngle getPortalAngleDiff() const;
 	inline bool hitSkyWall(AActor* mo) const;
 
 	int Index() const { return linenum; }
@@ -1626,6 +1658,7 @@ struct subsector_t
 	uint32_t	numlines;
 	uint16_t	flags;
 	short		mapsection;
+	FBoundingBox	bbox; // [DVR] For alternative space culling in orthographic projection with no fog of war
 
 	// subsector related GL data
 	int				validcount;
@@ -1635,7 +1668,7 @@ struct subsector_t
 	int Index() const { return subsectornum; }
 									// 2: has one-sided walls
 	FPortalCoverage	portalcoverage[2];
-
+	TArray<DVisualThinker *> sprites;
 	LightmapSurface *lightmap[2];
 };
 

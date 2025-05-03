@@ -103,7 +103,7 @@ enum
 	DTA_CellX,			// horizontal size of character cell
 	DTA_CellY,			// vertical size of character cell
 
-	// New additions. 
+	// New additions.
 	DTA_Color,
 	DTA_FlipY,			// bool: flip image vertically
 	DTA_SrcX,			// specify a source rectangle (this supersedes the poorly implemented DTA_WindowLeft/Right
@@ -132,6 +132,7 @@ enum
 	DTA_Indexed,			// Use an indexed texture combined with the given translation.
 	DTA_CleanTop,			// Like DTA_Clean but aligns to the top of the screen instead of the center.
 	DTA_NoOffset,			// Ignore 2D drawer's offset.
+	DTA_Localize,		// localize drawn string, for DrawText only
 
 };
 
@@ -175,7 +176,7 @@ struct DrawParms
 	double left;
 	float Alpha;
 	PalEntry fillcolor;
-	int TranslationId;
+	FTranslationID TranslationId;
 	PalEntry colorOverlay;
 	PalEntry color;
 	int alphaChannel;
@@ -194,6 +195,7 @@ struct DrawParms
 	int monospace;
 	int spacing;
 	int maxstrlen;
+	bool localize;
 	bool fortext;
 	bool virtBottom;
 	bool burn;
@@ -258,8 +260,15 @@ inline int active_con_scale(F2DDrawer *drawer)
 #undef DrawText	// See WinUser.h for the definition of DrawText as a macro
 #endif
 
+enum
+{
+	DrawTexture_Normal,
+	DrawTexture_Text,
+	DrawTexture_Fill,
+};
+
 template<class T>
-bool ParseDrawTextureTags(F2DDrawer *drawer, FGameTexture* img, double x, double y, uint32_t tag, T& tags, DrawParms* parms, bool fortext);
+bool ParseDrawTextureTags(F2DDrawer *drawer, FGameTexture* img, double x, double y, uint32_t tag, T& tags, DrawParms* parms, int type, PalEntry fill = ~0u, double fillalpha = 0.0, bool scriptDifferences = false);
 
 template<class T>
 void DrawTextCommon(F2DDrawer *drawer, FFont* font, int normalcolor, double x, double y, const T* string, DrawParms& parms);
@@ -328,3 +337,4 @@ public:
 };
 
 void Draw2D(F2DDrawer* drawer, FRenderState& state);
+void Draw2D(F2DDrawer* drawer, FRenderState& state, int x, int y, int width, int height);

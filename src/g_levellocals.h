@@ -130,7 +130,7 @@ struct FLevelLocals
 	void AddScroller(int secnum);
 	void SetInterMusic(const char *nextmap);
 	void SetMusicVolume(float v);
-	void ClearLevelData();
+	void ClearLevelData(bool fullgc = true);
 	void ClearPortals();
 	bool CheckIfExitIsGood(AActor *self, level_info_t *newmap);
 	void FormatMapName(FString &mapname, const char *mapnamecolor);
@@ -194,7 +194,7 @@ public:
 	AActor *SpawnMapThing(int index, FMapThing *mt, int position);
 	AActor *SpawnPlayer(FPlayerStart *mthing, int playernum, int flags = 0);
 	void StartLightning();
-	void ForceLightning(int mode);
+	void ForceLightning(int mode, FSoundID tempSound = NO_SOUND);
 	void ClearDynamic3DFloorData();
 	void WorldDone(void);
 	void AirControlChanged();
@@ -379,6 +379,11 @@ public:
 		return PointInSubsector(pos.X, pos.Y)->sector;
 	}
 
+	sector_t* PointInSector(const DVector3& pos)
+	{
+		return PointInSubsector(pos.X, pos.Y)->sector;
+	}
+
 	sector_t *PointInSector(double x, double y)
 	{
 		return PointInSubsector(x, y)->sector;
@@ -389,6 +394,11 @@ public:
 		return PointInRenderSubsector(FloatToFixed(pos.X), FloatToFixed(pos.Y));
 	}
 
+	subsector_t* PointInRenderSubsector(const DVector3& pos)
+	{
+		return PointInRenderSubsector(FloatToFixed(pos.X), FloatToFixed(pos.Y));
+	}
+	
 	FPolyObj *GetPolyobj (int polyNum)
 	{
 		auto index = Polyobjects.FindEx([=](const auto &poly) { return poly.tag == polyNum; });
@@ -417,6 +427,8 @@ public:
 		DThinker *thinker = static_cast<DThinker*>(cls->CreateNew());
 		assert(thinker->IsKindOf(RUNTIME_CLASS(DThinker)));
 		thinker->ObjectFlags |= OF_JustSpawned;
+		if (thinker->IsKindOf(RUNTIME_CLASS(DVisualThinker))) // [MC] This absolutely must happen for this class!
+			statnum = STAT_VISUALTHINKER;
 		Thinkers.Link(thinker, statnum);
 		thinker->Level = this;
 		return thinker;
@@ -622,6 +634,7 @@ public:
 	uint32_t		hazardcolor;			// what color strife hazard blends the screen color as
 	uint32_t		hazardflash;			// what color strife hazard flashes the screen color as
 
+	FString		LightningSound = "world/thunder";
 	FString		Music;
 	int			musicorder;
 	int			cdtrack;
@@ -635,6 +648,7 @@ public:
 	double		sky1pos, sky2pos;
 	float		hw_sky1pos, hw_sky2pos;
 	bool		skystretch;
+	uint32_t	globalcolormap;
 
 	int			total_secrets;
 	int			found_secrets;
@@ -657,6 +671,7 @@ public:
 	DSeqNode *SequenceListHead;
 
 	// [RH] particle globals
+	uint32_t			OldestParticle; // [MC] Oldest particle for replacing with SPF_REPLACE
 	uint32_t			ActiveParticles;
 	uint32_t			InactiveParticles;
 	TArray<particle_t>	Particles;
@@ -685,7 +700,6 @@ public:
 	float		MusicVolume;
 
 	// Hardware render stuff that can either be set via CVAR or MAPINFO
-	ELightMode	lightMode;
 	bool		brightfog;
 	bool		lightadditivesurfaces;
 	bool		notexturefill;
@@ -847,16 +861,36 @@ inline line_t *line_t::getPortalDestination() const
 	return portalindex >= GetLevel()->linePortals.Size() ? (line_t*)nullptr : GetLevel()->linePortals[portalindex].mDestination;
 }
 
+inline int line_t::getPortalFlags() const
+{
+	return portalindex >= GetLevel()->linePortals.Size() ? 0 : GetLevel()->linePortals[portalindex].mFlags;
+}
+
 inline int line_t::getPortalAlignment() const
 {
 	return portalindex >= GetLevel()->linePortals.Size() ? 0 : GetLevel()->linePortals[portalindex].mAlign;
+}
+
+inline int line_t::getPortalType() const
+{
+	return portalindex >= GetLevel()->linePortals.Size() ? 0 : GetLevel()->linePortals[portalindex].mType;
+}
+
+inline DVector2 line_t::getPortalDisplacement() const
+{
+	return portalindex >= GetLevel()->linePortals.Size() ? DVector2(0., 0.) : GetLevel()->linePortals[portalindex].mDisplacement;
+}
+
+inline DAngle line_t::getPortalAngleDiff() const
+{
+	return portalindex >= GetLevel()->linePortals.Size() ? DAngle::fromDeg(0.) : GetLevel()->linePortals[portalindex].mAngleDiff;
 }
 
 inline bool line_t::hitSkyWall(AActor* mo) const
 {
 	return backsector &&
 		backsector->GetTexture(sector_t::ceiling) == skyflatnum &&
-		mo->Z() >= backsector->ceilingplane.ZatPoint(mo->PosRelative(this));
+		mo->Z() >= backsector->ceilingplane.ZatPoint(mo->PosRelative(this).XY());
 }
 
 // This must later be extended to return an array with all levels.
@@ -865,3 +899,5 @@ inline TArrayView<FLevelLocals *> AllLevels()
 {
 	return TArrayView<FLevelLocals *>(&primaryLevel, 1);
 }
+
+ELightMode getRealLightmode(FLevelLocals* Level, bool for3d);

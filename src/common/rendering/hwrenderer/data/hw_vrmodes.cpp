@@ -34,7 +34,7 @@
 **
 */
 
-#include "vectors.h" // RAD2DEG
+#include "vectors.h"
 #include "hw_cvars.h"
 #include "hw_vrmodes.h"
 #include "v_video.h"
@@ -66,6 +66,16 @@ static VRMode vrmi_lefteye = { 1, 1.f, 1.f, 1.f, { { -.5f, 1.f },{ 0.f, 0.f } } 
 static VRMode vrmi_righteye = { 1, 1.f, 1.f, 1.f,{ { .5f, 1.f },{ 0.f, 0.f } } };
 static VRMode vrmi_topbottom = { 2, 1.f, .5f, 1.f,{ { -.5f, 1.f },{ .5f, 1.f } } };
 static VRMode vrmi_checker = { 2, isqrt2, isqrt2, 1.f,{ { -.5f, 1.f },{ .5f, 1.f } } };
+
+static float DEG2RAD(float deg)
+{
+	return deg * float(M_PI / 180.0);
+}
+
+static float RAD2DEG(float rad)
+{
+	return rad * float(180. / M_PI);
+}
 
 const VRMode *VRMode::GetVRMode(bool toscreen)
 {
@@ -136,11 +146,27 @@ float VREyeInfo::getShift() const
 	return vr_swap_eyes ? -res : res;
 }
 
-VSMatrix VREyeInfo::GetProjection(float fov, float aspectRatio, float fovRatio) const
+VSMatrix VREyeInfo::GetProjection(float fov, float aspectRatio, float fovRatio, bool iso_ortho) const
 {
 	VSMatrix result;
 
-	if (mShiftFactor == 0)
+	if (iso_ortho) // Orthographic projection for isometric viewpoint
+	{
+		double zNear = -3.0/fovRatio; // screen->GetZNear();
+		double zFar = screen->GetZFar();
+
+		double fH = tan(DEG2RAD(fov) / 2) / fovRatio;
+		double fW = fH * aspectRatio * mScaleFactor;
+		double left = -fW;
+		double right = fW;
+		double bottom = -fH;
+		double top = fH;
+
+		VSMatrix fmat(1);
+		fmat.ortho((float)left, (float)right, (float)bottom, (float)top, (float)zNear, (float)zFar);
+		return fmat;
+	}
+	else if (mShiftFactor == 0)
 	{
 		float fovy = (float)(2 * RAD2DEG(atan(tan(DEG2RAD(fov) / 2) / fovRatio)));
 		result.perspective(fovy, aspectRatio, screen->GetZNear(), screen->GetZFar());

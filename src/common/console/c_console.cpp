@@ -45,7 +45,7 @@
 #include "filesystem.h"
 #include "d_gui.h"
 #include "cmdlib.h"
-#include "d_event.h"
+#include "d_eventbase.h"
 #include "c_consolebuffer.h"
 #include "utf8.h"
 #include "v_2ddrawer.h"
@@ -95,8 +95,6 @@ static FTextureID conflat;
 static uint32_t conshade;
 static bool conline;
 
-extern int chatmodeon;
-extern FBaseCVar *CVars;
 extern FConsoleCommand *Commands[FConsoleCommand::HASH_SIZE];
 
 int			ConWidth;
@@ -104,7 +102,9 @@ bool		vidactive = false;
 bool		cursoron = false;
 int			ConBottom, ConScroll, RowAdjust;
 uint64_t	CursorTicker;
-constate_e	ConsoleState = c_up;
+uint8_t		ConsoleState = c_up;
+
+DEFINE_GLOBAL(ConsoleState)
 
 static int TopLine, InsertLine;
 
@@ -177,7 +177,7 @@ static void setmsgcolor (int index, int color);
 FILE *Logfile = NULL;
 
 
-FIntCVar msglevel ("msg", 0, CVAR_ARCHIVE);
+CVARD_NAMED(Int, msglevel, msg, 0, CVAR_ARCHIVE, "Filters HUD message by importance");
 
 CUSTOM_CVAR (Int, msg0color, CR_UNTRANSLATED, CVAR_ARCHIVE)
 {
@@ -295,7 +295,7 @@ void C_DeinitConsole ()
 	while (cmd != NULL)
 	{
 		GameAtExit *next = cmd->Next;
-		AddCommandString (cmd->Command);
+		AddCommandString (cmd->Command.GetChars());
 		delete cmd;
 		cmd = next;
 	}
@@ -310,22 +310,6 @@ void C_DeinitConsole ()
 		hist = next;
 	}
 	HistTail = HistHead = HistPos = NULL;
-
-	// Free cvars allocated at runtime
-	FBaseCVar *var, *next, **nextp;
-	for (var = CVars, nextp = &CVars; var != NULL; var = next)
-	{
-		next = var->m_Next;
-		if (var->GetFlags() & CVAR_UNSETTABLE)
-		{
-			delete var;
-			*nextp = next;
-		}
-		else
-		{
-			nextp = &var->m_Next;
-		}
-	}
 
 	// Free alias commands. (i.e. The "commands" that can be allocated
 	// at runtime.)
@@ -433,7 +417,7 @@ int PrintString (int iprintlevel, const char *outline)
 
 	if (!conbuffer) return 0;	// when called too early
 	int printlevel = iprintlevel & PRINT_TYPES;
-	if (printlevel < msglevel || *outline == '\0')
+	if (*outline == '\0')
 	{
 		return 0;
 	}
@@ -450,7 +434,10 @@ int PrintString (int iprintlevel, const char *outline)
 			conbuffer->AddText(printlevel, outline);
 			if (vidactive && screen && !(iprintlevel & PRINT_NONOTIFY) && NotifyStrings)
 			{
-				NotifyStrings->AddString(iprintlevel, outline);
+				if (printlevel >= msglevel)
+				{
+					NotifyStrings->AddString(iprintlevel, outline);
+				}
 			}
 		}
 		if (Logfile != nullptr && !(iprintlevel & PRINT_NOLOG))
@@ -664,48 +651,51 @@ void C_DrawConsole ()
 		conbuffer->FormatText(CurrentConsoleFont, ConWidth / textScale);
 		unsigned int consolelines = conbuffer->GetFormattedLineCount();
 		FBrokenLines *blines = conbuffer->GetLines();
-		FBrokenLines *printline = blines + consolelines - 1 - RowAdjust;
-
-		int bottomline = ConBottom / textScale - CurrentConsoleFont->GetHeight()*2 - 4;
-
-		for(FBrokenLines *p = printline; p >= blines && lines > 0; p--, lines--)
+		if (blines != nullptr)
 		{
-			if (textScale == 1)
-			{
-				DrawText(twod, CurrentConsoleFont, CR_TAN, LEFTMARGIN, offset + lines * CurrentConsoleFont->GetHeight(), p->Text, TAG_DONE);
-			}
-			else
-			{
-				DrawText(twod, CurrentConsoleFont, CR_TAN, LEFTMARGIN, offset + lines * CurrentConsoleFont->GetHeight(), p->Text,
-					DTA_VirtualWidth, twod->GetWidth() / textScale,
-					DTA_VirtualHeight, twod->GetHeight() / textScale,
-					DTA_KeepRatio, true, TAG_DONE);
-			}
-		}
+			FBrokenLines* printline = blines + consolelines - 1 - RowAdjust;
 
-		if (ConBottom >= 20)
-		{
-			if (gamestate != GS_STARTUP)
+			int bottomline = ConBottom / textScale - CurrentConsoleFont->GetHeight() * 2 - 4;
+
+			for (FBrokenLines* p = printline; p >= blines && lines > 0; p--, lines--)
 			{
-				auto now = I_msTime();
-				if (now > CursorTicker)
-				{
-					CursorTicker = now + 500;
-					cursoron = !cursoron;
-				}
-				CmdLine.Draw(left, bottomline, textScale, cursoron);
-			}
-			if (RowAdjust && ConBottom >= CurrentConsoleFont->GetHeight()*7/2)
-			{
-				// Indicate that the view has been scrolled up (10)
-				// and if we can scroll no further (12)
 				if (textScale == 1)
-					DrawChar(twod, CurrentConsoleFont, CR_GREEN, 0, bottomline, RowAdjust == conbuffer->GetFormattedLineCount() ? 12 : 10, TAG_DONE);
+				{
+					DrawText(twod, CurrentConsoleFont, CR_TAN, LEFTMARGIN, offset + lines * CurrentConsoleFont->GetHeight(), p->Text.GetChars(), TAG_DONE);
+				}
 				else
-					DrawChar(twod, CurrentConsoleFont, CR_GREEN, 0, bottomline, RowAdjust == conbuffer->GetFormattedLineCount() ? 12 : 10,
+				{
+					DrawText(twod, CurrentConsoleFont, CR_TAN, LEFTMARGIN, offset + lines * CurrentConsoleFont->GetHeight(), p->Text.GetChars(),
 						DTA_VirtualWidth, twod->GetWidth() / textScale,
 						DTA_VirtualHeight, twod->GetHeight() / textScale,
 						DTA_KeepRatio, true, TAG_DONE);
+				}
+			}
+
+			if (ConBottom >= 20)
+			{
+				if (gamestate != GS_STARTUP)
+				{
+					auto now = I_msTime();
+					if (now > CursorTicker)
+					{
+						CursorTicker = now + 500;
+						cursoron = !cursoron;
+					}
+					CmdLine.Draw(left, bottomline, textScale, cursoron);
+				}
+				if (RowAdjust && ConBottom >= CurrentConsoleFont->GetHeight() * 7 / 2)
+				{
+					// Indicate that the view has been scrolled up (10)
+					// and if we can scroll no further (12)
+					if (textScale == 1)
+						DrawChar(twod, CurrentConsoleFont, CR_GREEN, 0, bottomline, RowAdjust == conbuffer->GetFormattedLineCount() ? 12 : 10, TAG_DONE);
+					else
+						DrawChar(twod, CurrentConsoleFont, CR_GREEN, 0, bottomline, RowAdjust == conbuffer->GetFormattedLineCount() ? 12 : 10,
+							DTA_VirtualWidth, twod->GetWidth() / textScale,
+							DTA_VirtualHeight, twod->GetHeight() / textScale,
+							DTA_KeepRatio, true, TAG_DONE);
+				}
 			}
 		}
 	}
@@ -1022,7 +1012,7 @@ static bool C_HandleKey (event_t *ev, FCommandBuffer &buffer)
 			}
 			HistPos = NULL;
 			buffer.SetString("");
-			AddCommandString(bufferText);
+			AddCommandString(bufferText.GetChars());
 			TabbedLast = false;
 			TabbedList = false;
 			break;
@@ -1070,7 +1060,7 @@ static bool C_HandleKey (event_t *ev, FCommandBuffer &buffer)
 				{ // copy to clipboard
 					if (buffer.TextLength() > 0)
 					{
-						I_PutInClipboard(buffer.GetText());
+						I_PutInClipboard(buffer.GetText().GetChars());
 					}
 				}
 				else

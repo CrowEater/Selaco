@@ -384,7 +384,9 @@ bool P_PredictLine(line_t *line, AActor *mo, int side, int activationType)
 
 	// Only predict a very specifc section of specials
 	if (line->special != Teleport_Line &&
-		line->special != Teleport)
+		line->special != Teleport &&
+		line->special != Teleport_NoFog &&
+		line->special != Teleport_NoStop)
 	{
 		return false;
 	}
@@ -619,10 +621,10 @@ void P_GiveSecret(FLevelLocals *Level, AActor *actor, bool printmessage, bool pl
 		{
 			if (printmessage)
 			{
-				C_MidPrint(nullptr, GStrings["SECRETMESSAGE"]);
+				C_MidPrint(nullptr, GStrings.CheckString("SECRETMESSAGE"));
 				if (showsecretsector && sectornum >= 0) 
 				{
-					Printf(PRINT_NONOTIFY, "Secret found in sector %d\n", sectornum);
+					Printf(PRINT_HIGH | PRINT_NONOTIFY, "Secret found in sector %d\n", sectornum);
 				}
 			}
 			if (playsound) S_Sound (CHAN_AUTO, CHANF_UI, "misc/secret", 1, ATTN_NORM);
@@ -696,7 +698,7 @@ void P_UpdateSpecials (FLevelLocals *Level)
 	{
 		if (Level->maptime >= (int)(timelimit * TICRATE * 60))
 		{
-			Printf ("%s\n", GStrings("TXT_TIMELIMIT"));
+			Printf ("%s\n", GStrings.GetString("TXT_TIMELIMIT"));
 			Level->ExitLevel(0, false);
 		}
 	}

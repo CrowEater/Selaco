@@ -227,7 +227,7 @@ void ExportEnvironments(const char *filename, uint32_t count, const ReverbContai
 {
 	FString dest = M_GetDocumentsPath() + filename;
 
-	FileWriter *f = FileWriter::Open(dest);
+	FileWriter *f = FileWriter::Open(dest.GetChars());
 
 	if (f != nullptr)
 	{
@@ -469,12 +469,12 @@ static void SelectEnvironment(const char *envname)
 			int newid = FirstFreeID(env->ID, env->Builtin);
 			UCVarValue cv;
 			cv.Int = HIBYTE(newid);
-			reverbedit_id1.ForceSet(cv, CVAR_Int);
+			reverbedit_id1->ForceSet(cv, CVAR_Int);
 			cv.Int = LOBYTE(newid);
-			reverbedit_id2.ForceSet(cv, CVAR_Int);
+			reverbedit_id2->ForceSet(cv, CVAR_Int);
 			FString selectname = SuggestNewName(env);
 			cv.String = selectname.GetChars();
-			reverbedit_name.ForceSet(cv, CVAR_String);
+			reverbedit_name->ForceSet(cv, CVAR_String);
 			return;
 		}
 	}
@@ -509,13 +509,13 @@ CCMD(createenvironment)
 {
 	if (S_FindEnvironment(reverbedit_name))
 	{
-		M_StartMessage(FStringf("An environment with the name '%s' already exists", *reverbedit_name), 1);
+		M_StartMessage(FStringf("An environment with the name '%s' already exists", *reverbedit_name).GetChars(), 1);
 		return;
 	}
 	int id = (reverbedit_id1 << 8) + reverbedit_id2;
 	if (S_FindEnvironment(id))
 	{
-		M_StartMessage(FStringf("An environment with the ID (%d, %d) already exists", *reverbedit_id1, *reverbedit_id2), 1);
+		M_StartMessage(FStringf("An environment with the ID (%d, %d) already exists", *reverbedit_id1, *reverbedit_id2).GetChars(), 1);
 		return;
 	}
 

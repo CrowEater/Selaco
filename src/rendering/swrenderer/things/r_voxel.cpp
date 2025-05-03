@@ -135,12 +135,12 @@ namespace swrenderer
 		int voxelspin = (thing->flags & MF_DROPPED) ? voxel->DroppedSpin : voxel->PlacedSpin;
 		if (voxelspin != 0)
 		{
-			DAngle ang = double(screen->FrameTime) * voxelspin / 1000;
+			DAngle ang = DAngle::fromDeg((screen->FrameTime) * voxelspin / 1000.);
 			vis->Angle -= ang;
 		}
 
 		vis->pa.vpos = { (float)thread->Viewport->viewpoint.Pos.X, (float)thread->Viewport->viewpoint.Pos.Y, (float)thread->Viewport->viewpoint.Pos.Z };
-		vis->pa.vang = FAngle((float)thread->Viewport->viewpoint.Angles.Yaw.Degrees);
+		vis->pa.vang = FAngle::fromDeg(((float)thread->Viewport->viewpoint.Angles.Yaw.Degrees()));
 
 		// killough 3/27/98: save sector for special clipping later
 		vis->heightsec = heightsec;
@@ -148,6 +148,9 @@ namespace swrenderer
 
 		vis->depth = (float)tz;
 		vis->gpos = { (float)pos.X, (float)pos.Y, (float)pos.Z };
+		vis->gpos.X += (float)voxel->xoffset;
+		vis->gpos.Y += (float)voxel->yoffset;
+		vis->gpos.Z += (float)voxel->zoffset;
 		vis->gzb = (float)gzb;		// [RH] use gzb, not thing->z
 		vis->gzt = (float)gzt;		// killough 3/27/98
 		vis->deltax = float(pos.X - thread->Viewport->viewpoint.Pos.X);
@@ -373,8 +376,8 @@ namespace swrenderer
 		if ((abs(globalposz - dasprz) >> 10) >= abs(dazscale)) return;
 
 		x = 0; y = 0; j = max(mip->SizeX, mip->SizeY);
-		fixed_t *ggxinc = (fixed_t *)alloca((j + 1) * sizeof(fixed_t) * 2);
-		fixed_t *ggyinc = ggxinc + (j + 1);
+		TArray<fixed_t> ggxinc((j + 1) * 2);
+		fixed_t *ggyinc = ggxinc.data() + (j + 1);
 		for (i = 0; i <= j; i++)
 		{
 			ggxinc[i] = x; x += gxinc;

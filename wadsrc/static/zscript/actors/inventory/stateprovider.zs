@@ -210,10 +210,10 @@ class StateProvider : Inventory
 	//
 	//==========================================================================
 
-	action Actor A_FireProjectile(class<Actor> missiletype, double angle = 0, bool useammo = true, double spawnofs_xy = 0, double spawnheight = 0, int flags = 0, double pitch = 0)	
+	action Actor, Actor A_FireProjectile(class<Actor> missiletype, double angle = 0, bool useammo = true, double spawnofs_xy = 0, double spawnheight = 0, int flags = 0, double pitch = 0)	
 	{
 		let player = self.player;
-		if (!player) return null;
+		if (!player) return null, null;
 
 		let weapon = player.ReadyWeapon;
 
@@ -223,7 +223,7 @@ class StateProvider : Inventory
 		if (useammo && weapon && stateinfo != null && stateinfo.mStateType == STATE_Psprite)
 		{
 			if (!weapon.DepleteAmmo(weapon.bAltFire, true))
-				return null;	// out of ammo
+				return null, null;	// out of ammo
 		}
 
 		if (missiletype) 
@@ -237,14 +237,17 @@ class StateProvider : Inventory
 			// Temporarily adjusts the pitch
 			double saved_player_pitch = self.Pitch;
 			self.Pitch += pitch;
-			let misl = SpawnPlayerMissile (missiletype, shootangle, ofs.X, ofs.Y, spawnheight, t, false, (flags & FPF_NOAUTOAIM) != 0);
+
+			Actor misl, realmisl;
+			[misl, realmisl] = SpawnPlayerMissile (missiletype, shootangle, ofs.X, ofs.Y, spawnheight, t, false, (flags & FPF_NOAUTOAIM) != 0);
 			self.Pitch = saved_player_pitch;
+
+			if (realmisl && flags & FPF_TRANSFERTRANSLATION)
+				realmisl.Translation = Translation;
 
 			// automatic handling of seeker missiles
 			if (misl)
 			{
-				if (flags & FPF_TRANSFERTRANSLATION)
-					misl.Translation = Translation;
 				if (t.linetarget && !t.unlinked && misl.bSeekerMissile)
 					misl.tracer = t.linetarget;
 				if (!(flags & FPF_AIMATANGLE))
@@ -255,9 +258,9 @@ class StateProvider : Inventory
 					misl.VelFromAngle(misl.Vel.XY.Length());
 				}
 			}
-			return misl;
+			return misl, realmisl;
 		}
-		return null;
+		return null, null;
 	}
 
 //==========================================================================

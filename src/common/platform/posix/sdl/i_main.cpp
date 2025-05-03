@@ -77,6 +77,7 @@ int GameMain();
 // EXTERNAL DATA DECLARATIONS ----------------------------------------------
 
 // PUBLIC DATA DEFINITIONS -------------------------------------------------
+FString sys_ostype;
 
 // The command line arguments.
 FArgs *Args;
@@ -136,6 +137,7 @@ void I_DetectOS()
 	{
 		const char* const separator = operatingSystem.Len() > 0 ? ", " : "";
 		operatingSystem.AppendFormat("%s%s %s on %s", separator, unameInfo.sysname, unameInfo.release, unameInfo.machine);
+		sys_ostype.Format("%s %s on %s", unameInfo.sysname, unameInfo.release, unameInfo.machine);
 	}
 
 	if (operatingSystem.Len() > 0)
@@ -174,7 +176,9 @@ int main (int argc, char **argv)
 
 	Args = new FArgs(argc, argv);
 
-	// Should we even be doing anything with progdir on Unix systems?
+#ifdef PROGDIR
+	progdir = PROGDIR;
+#else
 	char program[PATH_MAX];
 	if (realpath (argv[0], program) == NULL)
 		strcpy (program, argv[0]);
@@ -188,6 +192,7 @@ int main (int argc, char **argv)
 	{
 		progdir = "./";
 	}
+#endif
 
 	//I_StartupJoysticks(); @Cockatrice - Moved this to hardware.cpp, because it requires the config file to be created
 

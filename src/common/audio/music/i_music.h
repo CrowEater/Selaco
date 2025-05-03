@@ -34,36 +34,25 @@
 #ifndef __I_MUSIC_H__
 #define __I_MUSIC_H__
 
-#include "c_cvars.h"
-
-class FileReader;
-struct FOptionValues;
-
 //
 //	MUSIC I/O
 //
-void I_InitMusic ();
-void I_BuildMIDIMenuList (FOptionValues *);
+void I_InitMusic (int);
 
 // Volume.
 void I_SetRelativeVolume(float);
 void I_SetMusicVolume (double volume);
 
 
-extern int nomusic;
-
-EXTERN_CVAR(Bool, mus_enabled)
-EXTERN_CVAR(Float, snd_musicvolume)
-
 
 inline float AmplitudeTodB(float amplitude)
 {
-	return 20.0f * log10(amplitude);
+	return 20.0f * log10f(amplitude);
 }
 
 inline float dBToAmplitude(float dB)
 {
-	return pow(10.0f, dB / 20.0f);
+	return powf(10.0f, dB / 20.0f);
 }
 
 #endif //__I_MUSIC_H__

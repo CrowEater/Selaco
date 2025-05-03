@@ -1,5 +1,6 @@
 #pragma once
 
+#include "basics.h"
 
 
 struct FModelVertex
@@ -9,6 +10,8 @@ struct FModelVertex
 	unsigned packedNormal;	// normal vector as GL_INT_2_10_10_10_REV.
 	float lu, lv;	// lightmap texture coordinates
 	float lindex;	// lightmap texture index
+	uint8_t boneselector[4];
+	uint8_t boneweight[4];
 
 	void Set(float xx, float yy, float zz, float uu, float vv)
 	{
@@ -29,6 +32,22 @@ struct FModelVertex
 		int inz = clamp(int(nz * 512), -512, 511);
 		int inw = 0;
 		packedNormal = (inw << 30) | ((inz & 1023) << 20) | ((iny & 1023) << 10) | (inx & 1023);
+	}
+
+	void SetBoneSelector(int x, int y, int z, int w)
+	{
+		boneselector[0] = x;
+		boneselector[1] = y;
+		boneselector[2] = z;
+		boneselector[3] = w;
+	}
+
+	void SetBoneWeight(int x, int y, int z, int w)
+	{
+		boneweight[0] = x;
+		boneweight[1] = y;
+		boneweight[2] = z;
+		boneweight[3] = w;
 	}
 };
 
