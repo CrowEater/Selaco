@@ -68,6 +68,7 @@ void I_DebugPrintf(const char *fmt,...)
 #else
 void I_DebugPrint(const char *cp)
 {
+    printf("%s", cp);
 }
 
 void I_DebugPrintf(const char *fmt,...)
