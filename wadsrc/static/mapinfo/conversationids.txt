@@ -1,4 +1,0 @@
-conversationids
-{
-	// no conversation IDs were ever defined for other Games than Strife so this is all there is.
-}
